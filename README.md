@@ -10,64 +10,67 @@ ApolloAgents uses a multi-agent pipeline to plan, critique, and build DJ mixes. 
 
 ## Architecture
 
-```
-                        ┌─────────────────────────────────┐
-                        │           A P O L L O            │
-                        │         Orchestrator             │
-                        └────────────────┬────────────────┘
-                                         │
-          ┌──────────────────────────────┼──────────────────────────────┐
-          │                              │                              │
-          ▼                              ▼                              ▼
-   ┌─────────────┐               ┌─────────────┐               ┌─────────────┐
-   │    JANUS    │               │    HERMES   │               │             │
-   │ Genre Guard │               │   Catalog   │               │  (future)   │
-   │             │               │   Manager   │               │             │
-   └──────┬──────┘               └─────────────┘               └─────────────┘
-          │ confirmed genre
-          ▼
-   ┌─────────────┐
-   │    MUSE     │  reads memory →  avoids weak tracks
-   │   Planner   │  proposes playlist (BPM cluster + harmonic sort)
-   └──────┬──────┘
-          │ playlist
-          ▼
-   ┌─────────────┐
-   │  Checkpoint │  you review + adjust before Critic sees it
-   └──────┬──────┘
-          │
-          ▼
-   ┌─────────────┐
-   │   MOMUS     │  reads memory →  flags recurring problem patterns
-   │    Critic   │  PROBLEMS / VERDICT (cold, unbiased review)
-   └──────┬──────┘
-          │
-          ▼
-   ┌─────────────┐
-   │  Checkpoint │  you see critique, decide what to fix
-   └──────┬──────┘
-          │
-          ▼
-   ┌─────────────┐
-   │ Editor REPL │  swap, move, refine until satisfied
-   └──────┬──────┘
-          │ build
-          ▼
-   ┌─────────────────────────────────────────────────────┐
-   │                  mix pipeline                        │
-   │  BPM match → crossfade → WAV → 1080p video + Short  │
-   └──────┬──────────────────────────────────────────────┘
-          │
-          ▼
-   ┌─────────────┐
-   │   THEMIS    │  clipping · spectral flatness · silence gaps · RMS drops
-   │  Validator  │  audio quality report before you waste time on a bad mix
-   └──────┬──────┘
-          │
-          ▼
-   ┌─────────────┐
-   │   Memory    │  rating + notes stored → agents improve next session
-   └─────────────┘
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {
+  'background': '#0d0d1a',
+  'primaryColor': '#1a1a2e',
+  'primaryTextColor': '#e0e0ff',
+  'primaryBorderColor': '#4a4a8a',
+  'lineColor': '#6060aa',
+  'secondaryColor': '#12122a',
+  'tertiaryColor': '#0d0d1a',
+  'edgeLabelBackground': '#1a1a2e',
+  'clusterBkg': '#12122a',
+  'clusterBorder': '#3a3a6a',
+  'titleColor': '#c0c0ff',
+  'nodeTextColor': '#e0e0ff',
+  'fontFamily': 'monospace'
+}}}%%
+
+flowchart TD
+    User(["👤 User\nprompt"]):::user
+
+    subgraph APOLLO["☀️  APOLLO — Orchestrator"]
+        direction TB
+
+        JANUS["🚪 JANUS\nGenre Guard\n─────────────\nvalidates genre · duration · mood"]:::agent
+        HERMES["⚡ HERMES\nCatalog Manager\n─────────────\nsyncs WAVs · detects BPM & key"]:::agent
+
+        MUSE["🎵 MUSE\nPlanner\n─────────────\nenergy arc · harmonic order\nreads memory → avoids weak tracks"]:::agent
+
+        CP1{{"🛑 Checkpoint 1\nreview playlist"}}:::checkpoint
+
+        MOMUS["🎭 MOMUS\nCritic\n─────────────\ncold review · PROBLEMS / VERDICT\nreads memory → flags patterns"]:::agent
+
+        CP2{{"🛑 Checkpoint 2\napply fixes"}}:::checkpoint
+
+        EDITOR["✏️ Editor REPL\nswap · move · refine"]:::agent
+
+        PIPELINE[["⚙️ Mix Pipeline\nBPM match → crossfade → WAV\n1080p video + YouTube Short"]]:::pipeline
+
+        THEMIS["⚖️ THEMIS\nValidator\n─────────────\nclipping · spectral flatness\nsilence gaps · RMS drops"]:::agent
+
+        MEMORY[("🧠 Memory\nrating + notes\n→ agents improve")]:::memory
+    end
+
+    User --> JANUS
+    User --> HERMES
+    JANUS -->|"confirmed genre"| MUSE
+    MUSE -->|"playlist"| CP1
+    CP1 -->|"proceed"| MOMUS
+    MOMUS -->|"verdict"| CP2
+    CP2 -->|"ok"| EDITOR
+    EDITOR -->|"build"| PIPELINE
+    PIPELINE --> THEMIS
+    THEMIS -->|"PASS"| MEMORY
+    MEMORY -.->|"past sessions"| MUSE
+    MEMORY -.->|"problem patterns"| MOMUS
+
+    classDef agent        fill:#1a1a3a,stroke:#5858b0,color:#c8c8ff,rx:6
+    classDef checkpoint   fill:#2a1a0a,stroke:#c07820,color:#ffc060,shape:diamond
+    classDef pipeline     fill:#0a1f1a,stroke:#20a060,color:#60ffb0
+    classDef memory       fill:#1a0a2a,stroke:#8040c0,color:#c080ff
+    classDef user         fill:#0a0a1a,stroke:#4040a0,color:#8080d0,shape:circle
 ```
 
 | Agent | Mythological name | Role |
