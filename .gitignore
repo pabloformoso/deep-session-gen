@@ -37,3 +37,4 @@ tracks/.DS_Store
 
 # Agent session memory (personal history)
 agent/memory.json
+apolloagents_paper.pdf
