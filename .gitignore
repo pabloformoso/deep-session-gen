@@ -34,3 +34,6 @@ tracks/.DS_Store
 
 # Claude project config
 .claude/
+
+# Agent session memory (personal history)
+agent/memory.json

@@ -1,10 +1,11 @@
 [project]
-name = "deep-session-gen"
+name = "apollo-agents"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI-powered DJ set builder — multi-agent pipeline from tracks to YouTube video"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=0.40.0",
     "ffmpeg-python>=0.2.0",
     "librosa>=0.11.0",
     "moviepy>=2.2.1",

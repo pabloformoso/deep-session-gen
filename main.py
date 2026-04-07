@@ -364,12 +364,16 @@ def compute_transition_bpm(bpm_out, bpm_in):
 
 
 def get_output_paths(session_name):
-    """Compute per-session output and artwork directories from a session name."""
+    """Compute per-session output directories from a session name."""
     output_dir = os.path.join(OUTPUT_BASE_DIR, session_name)
-    artwork_dir = os.path.join(ARTWORK_BASE_DIR, session_name)
     audio_path = os.path.join(output_dir, "mix_output.wav")
     video_path = os.path.join(output_dir, "mix_video.mp4")
-    return output_dir, artwork_dir, audio_path, video_path
+    return output_dir, audio_path, video_path
+
+
+def get_artwork_dir(genre):
+    """Compute the shared artwork directory for a genre (mirrors tracks/ structure)."""
+    return os.path.join(ARTWORK_BASE_DIR, genre.lower())
 
 
 # === Catalog system ===
@@ -472,6 +476,77 @@ def detect_camelot_key(filepath):
             best_score = score_minor
             best_key = _CAMELOT_MINOR[pc]
     return best_key
+
+
+def fix_incomplete_catalog():
+    """Re-analyse catalog entries that have missing BPM or Camelot key and update tracks.json."""
+    if not os.path.exists(CATALOG_PATH):
+        print("Error: catalog not found. Run --build-catalog first.")
+        sys.exit(1)
+
+    with open(CATALOG_PATH) as f:
+        data = json.load(f)
+
+    tracks = data["tracks"]
+    def _entry_missing(e):
+        return [f for f in ("id", "bpm", "camelot_key", "genre", "genre_folder") if not e.get(f)]
+
+    incomplete = [t for t in tracks if _entry_missing(t)]
+
+    if not incomplete:
+        print("All catalog entries are complete. Nothing to fix.")
+        return
+
+    print(f"=== Fixing {len(incomplete)} incomplete catalog entries ===\n")
+    fixed = 0
+
+    for entry in tracks:
+        missing = _entry_missing(entry)
+        if not missing:
+            continue
+
+        abs_file = os.path.join(_SCRIPT_DIR, entry["file"]) if not os.path.isabs(entry["file"]) else entry["file"]
+        name = entry.get("display_name") or os.path.splitext(os.path.basename(entry["file"]))[0]
+        print(f"  {name}  [missing: {', '.join(missing)}]")
+
+        # Derive genre_folder from file path if missing
+        if not entry.get("genre_folder"):
+            parts = entry["file"].replace("\\", "/").split("/")
+            entry["genre_folder"] = parts[1] if len(parts) >= 3 else ""
+            print(f"    genre_folder derived: {entry['genre_folder']}")
+
+        if not entry.get("genre"):
+            entry["genre"] = entry.get("genre_folder", "").title()
+            print(f"    genre derived: {entry['genre']}")
+
+        if not entry.get("display_name"):
+            entry["display_name"] = name
+
+        if not entry.get("id"):
+            is_variant = bool(entry.get("variant_of"))
+            entry["id"] = _make_track_id(entry["genre_folder"], name, is_variant)
+            print(f"    id generated: {entry['id']}")
+
+        if not os.path.exists(abs_file):
+            print(f"    [SKIP audio analysis] file not found — metadata fixed where possible")
+            fixed += 1
+            continue
+
+        if not entry.get("bpm"):
+            bpm = detect_bpm(abs_file, entry.get("genre_folder", ""))
+            entry["bpm"] = bpm
+            print(f"    BPM detected: {bpm}")
+
+        if not entry.get("camelot_key"):
+            key = detect_camelot_key(abs_file)
+            entry["camelot_key"] = key
+            print(f"    Camelot key detected: {key}")
+
+        fixed += 1
+
+    with open(CATALOG_PATH, "w") as f:
+        json.dump({"tracks": tracks}, f, indent=2, ensure_ascii=False)
+    print(f"\nFixed {fixed} entries → {CATALOG_PATH}")
 
 
 def build_catalog():
@@ -827,6 +902,7 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
         native_bpm = track["bpm"]
         beats = track["beats"]
         segment = AudioSegment.from_file(track["path"])
+        segment = segment - 3  # -3dB headroom to prevent crossfade clipping
         duration_sec = len(segment) / 1000.0
 
         print(f"\n[{i + 1}/{len(tracks)}] {name} "
@@ -866,6 +942,15 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
         mix = mix.append(incoming, crossfade=crossfade_ms)
         mix_bpm = native_bpm
 
+        # Fast peak check on the crossfade zone — no librosa, uses pydub
+        xfade_zone = mix[max(0, len(mix) - crossfade_ms - 1000):]
+        peak_dbfs = xfade_zone.max_dBFS
+        if peak_dbfs > -0.5:
+            print(f"  [PEAK WARNING] Crossfade zone peaks at {peak_dbfs:.1f} dBFS — "
+                  f"possible clipping after track {i + 1} ({name})")
+        else:
+            print(f"  Peak: {peak_dbfs:.1f} dBFS ✓")
+
         total_min = len(mix) / 1000 / 60
         print(f"  Mix: {total_min:.1f} min")
 
@@ -892,6 +977,10 @@ def export_mix(mix, output_path, audio_format="wav"):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     duration_min = len(mix) / 1000 / 60
 
+    # Normalize to -1dBFS to recover headroom lost during pre-mix gain reduction
+    if mix.max_dBFS < -1.0:
+        mix = mix.normalize(headroom=1.0)
+
     export_kwargs = {"format": audio_format}
     if audio_format == "mp3":
         export_kwargs["bitrate"] = EXPORT_BITRATE
@@ -901,6 +990,110 @@ def export_mix(mix, output_path, audio_format="wav"):
     mix.export(output_path, **export_kwargs)
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print(f"Done! {size_mb:.1f} MB")
+
+
+def validate_mix_file(audio_path, transitions):
+    """Run audio quality checks on the exported mix WAV before video rendering.
+
+    Uses librosa to detect clipping, spectral flatness (bleach/noise), silence gaps,
+    and sudden RMS drops. Prints a report. Does not block the pipeline.
+    """
+    if not os.path.exists(audio_path):
+        return
+
+    print("\n=== Audio Validation ===")
+    try:
+        y, sr = librosa.load(audio_path, sr=None, mono=True)
+    except Exception as e:
+        print(f"  [Validator] Could not load audio: {e}")
+        return
+
+    duration_sec = len(y) / sr
+    issues = []
+
+    # Build a timestamp lookup from transitions for readable reporting
+    def _ts(sec):
+        m, s = divmod(int(sec), 60)
+        return f"{m:02d}:{s:02d}"
+
+    def _nearest_track(sec):
+        best = None
+        for t in transitions:
+            if t["start_sec"] <= sec:
+                best = t["name"]
+        return best or "?"
+
+    # 1. Peak clipping
+    clip_mask = np.abs(y) >= 0.98
+    if clip_mask.any():
+        first_clip = float(np.where(clip_mask)[0][0]) / sr
+        pct = 100.0 * clip_mask.sum() / len(y)
+        issues.append(
+            f"[{_ts(first_clip)}] Clipping — {pct:.2f}% of samples ≥ 0.98 FS "
+            f"(near: {_nearest_track(first_clip)})"
+        )
+
+    # 2. Spectral flatness per 30s window (bleach/noise)
+    window_samples = 30 * sr
+    n_windows = max(1, len(y) // window_samples)
+    for w in range(n_windows):
+        chunk = y[w * window_samples: (w + 1) * window_samples]
+        if len(chunk) < sr:
+            continue
+        flatness = librosa.feature.spectral_flatness(y=chunk)
+        mean_flat = float(np.mean(flatness))
+        if mean_flat > 0.4:
+            sec = w * 30
+            issues.append(
+                f"[{_ts(sec)}] High spectral flatness ({mean_flat:.2f}) — "
+                f"possible noise/bleach near: {_nearest_track(sec)}"
+            )
+
+    # 3. Silence gaps > 2s
+    hop = int(sr * 0.1)
+    rms = librosa.feature.rms(y=y, hop_length=hop)[0]
+    in_gap = False
+    gap_start = 0.0
+    for fi, val in enumerate(rms):
+        t_sec = fi * hop / sr
+        if val < 0.005 and not in_gap:
+            in_gap = True
+            gap_start = t_sec
+        elif val >= 0.005 and in_gap:
+            in_gap = False
+            gap_dur = t_sec - gap_start
+            if gap_dur > 2.0:
+                issues.append(
+                    f"[{_ts(gap_start)}] Silence gap of {gap_dur:.1f}s — "
+                    f"possible dropout near: {_nearest_track(gap_start)}"
+                )
+
+    # 4. Sudden RMS drops > 12dB between adjacent 30s windows
+    rms_windows = []
+    for w in range(n_windows):
+        chunk = y[w * window_samples: (w + 1) * window_samples]
+        rms_windows.append(float(np.sqrt(np.mean(chunk ** 2))) if len(chunk) > 0 else 0.0)
+    for w in range(1, len(rms_windows)):
+        if rms_windows[w - 1] > 1e-6 and rms_windows[w] > 1e-6:
+            ratio_db = 20 * np.log10(rms_windows[w] / rms_windows[w - 1])
+            if ratio_db < -12:
+                sec = w * 30
+                issues.append(
+                    f"[{_ts(sec)}] RMS drop of {abs(ratio_db):.1f}dB — "
+                    f"possible bleached section near: {_nearest_track(sec)}"
+                )
+
+    dur_str = _ts(duration_sec)
+    if not issues:
+        print(f"  Duration: {dur_str} | Sample rate: {sr} Hz")
+        print("  Status: PASS — no issues detected ✓")
+    else:
+        print(f"  Duration: {dur_str} | Sample rate: {sr} Hz")
+        print(f"  Status: WARNING — {len(issues)} issue(s) found:")
+        for issue in issues:
+            print(f"    ✗ {issue}")
+        print("  (Video render will continue — review the mix before uploading)")
+    print()
 
 
 # === YouTube metadata generation ===
@@ -2425,6 +2618,8 @@ def _parse_args():
     parser = argparse.ArgumentParser(description="Deep Session Generator")
     parser.add_argument("--build-catalog", action="store_true",
                         help="Scan all genre folders and build/update tracks/tracks.json")
+    parser.add_argument("--fix-incomplete", action="store_true",
+                        help="Re-analyse catalog entries with missing BPM or Camelot key")
     parser.add_argument("--name", default=None,
                         help="Session name (used as output folder name)")
     parser.add_argument("--genre", default=None,
@@ -2433,6 +2628,10 @@ def _parse_args():
                         help="Target session duration in minutes")
     parser.add_argument("--short", action="store_true",
                         help="Generate a 20-second YouTube Short instead of full video")
+    parser.add_argument("--video-only", action="store_true",
+                        help="Re-render video/short from existing mix audio (skips mix build & export)")
+    parser.add_argument("--from-session", default=None, metavar="SESSION_JSON",
+                        help="Skip track selection and use a pre-built session.json (from agent)")
     return parser.parse_args()
 
 
@@ -2446,8 +2645,15 @@ def main():
         build_catalog()
         return
 
+    # --fix-incomplete: re-analyse entries with missing BPM or key and exit
+    if args.fix_incomplete:
+        fix_incomplete_catalog()
+        return
+
     # Validate required args for session generation
-    missing = [f for f, v in [("--name", args.name), ("--genre", args.genre), ("--duration", args.duration)] if not v]
+    missing = [f for f, v in [("--name", args.name), ("--genre", args.genre)] if not v]
+    if missing and not args.video_only:
+        missing += [f for f, v in [("--duration", args.duration)] if not v]
     if missing:
         print(f"Error: {', '.join(missing)} required to generate a session.")
         print("Usage: python main.py --name <name> --genre <genre> --duration <minutes>")
@@ -2461,13 +2667,58 @@ def main():
     # Slugify name for use as folder name
     session_name = _slugify(args.name)
 
-    # Generate session: select tracks from catalog
-    session_config, track_entries = generate_session(args.name, args.genre, args.duration)
-
     # Per-session output paths
-    output_dir, artwork_dir, audio_path, video_path = get_output_paths(session_name)
+    output_dir, audio_path, video_path = get_output_paths(session_name)
+    short_path = os.path.join(output_dir, "short.mp4")
+    transitions_path = os.path.join(output_dir, "transitions.json")
+
+    if args.video_only:
+        # --- Re-render video from existing mix audio ---
+        if not os.path.exists(audio_path):
+            print(f"Error: Mix audio not found at {audio_path}")
+            print("Run the full pipeline first (without --video-only).")
+            sys.exit(1)
+        if not os.path.exists(transitions_path):
+            print(f"Error: transitions.json not found at {transitions_path}")
+            print("Run the full pipeline first to save transitions.")
+            sys.exit(1)
+        session_json_path = os.path.join(output_dir, "session.json")
+        with open(session_json_path) as f:
+            session_config = json.load(f)
+        with open(transitions_path) as f:
+            transitions = json.load(f)
+        genre = args.genre or session_config.get("genre", "")
+        artwork_dir = get_artwork_dir(genre)
+        generate_video(audio_path, transitions, video_path, artwork_dir=artwork_dir,
+                       session_config=session_config, session_dir=None)
+        generate_short(None, session_config, transitions, audio_path, artwork_dir, short_path)
+        generate_youtube_md(session_name, genre, transitions, output_dir)
+        return
+
+    # --from-session: load a pre-built playlist from the agent instead of selecting tracks
+    if args.from_session:
+        with open(args.from_session) as f:
+            session_config = json.load(f)
+        track_entries = []
+        for t in session_config["playlist"]:
+            abs_file = os.path.join(_SCRIPT_DIR, t["file"]) if not os.path.isabs(t["file"]) else t["file"]
+            track_entries.append({
+                "path": abs_file,
+                "display_name": t["display_name"],
+                "camelot_key": t.get("camelot_key"),
+                "genre": t.get("genre"),
+            })
+        print(f"=== Loading Agent Session: {session_config['name']} ===")
+        print(f"Playlist: {len(track_entries)} tracks from {args.from_session}\n")
+        for i, t in enumerate(track_entries, 1):
+            print(f"  {i:2d}. {t['display_name']}  [{t.get('camelot_key','?')}]")
+        print()
+    else:
+        # Generate session: select tracks from catalog
+        session_config, track_entries = generate_session(args.name, args.genre, args.duration)
+    artwork_dir = get_artwork_dir(args.genre)
+
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(artwork_dir, exist_ok=True)
 
     # Save session.json to output folder for reproducibility
     session_json_path = os.path.join(output_dir, "session.json")
@@ -2477,8 +2728,6 @@ def main():
 
     # Analyze tracks (BPM + beats for mix engine)
     tracks = analyze_tracks(track_entries, use_playlist_order=True)
-
-    short_path = os.path.join(output_dir, "short.mp4")
 
     if args.short:
         # --- YouTube Short only ---
@@ -2492,7 +2741,11 @@ def main():
     else:
         # --- Full pipeline (includes short) ---
         mix, transitions = build_mix(tracks, target_duration_sec=None)
+        # Save transitions for future --video-only re-renders
+        with open(transitions_path, "w") as f:
+            json.dump(transitions, f, indent=2, ensure_ascii=False)
         export_mix(mix, audio_path)
+        validate_mix_file(audio_path, transitions)
         generate_video(audio_path, transitions, video_path, artwork_dir=artwork_dir,
                        session_config=session_config, session_dir=None)
         generate_short(None, session_config, transitions, audio_path, artwork_dir, short_path)
