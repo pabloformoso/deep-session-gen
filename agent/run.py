@@ -55,10 +55,6 @@ load_dotenv()
 _HAS_ANTHROPIC = bool(os.getenv("ANTHROPIC_API_KEY"))
 _HAS_OPENAI = bool(os.getenv("OPENAI_API_KEY"))
 
-if not _HAS_ANTHROPIC and not _HAS_OPENAI:
-    print("Error: set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env")
-    sys.exit(1)
-
 _PROVIDER = "anthropic" if _HAS_ANTHROPIC else "openai"
 _DEFAULT_MODEL = "claude-opus-4-6" if _PROVIDER == "anthropic" else "gpt-4o"
 _MODEL = os.getenv("AGENT_MODEL", _DEFAULT_MODEL)
@@ -753,6 +749,9 @@ def _orchestrate() -> None:
 # ---------------------------------------------------------------------------
 
 def run() -> None:
+    if not _HAS_ANTHROPIC and not _HAS_OPENAI:
+        print("Error: set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env")
+        sys.exit(1)
     _orchestrate()
 
 
