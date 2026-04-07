@@ -12,6 +12,12 @@ ApolloAgents uses a multi-agent pipeline to plan, critique, and build DJ mixes. 
 
 ---
 
+## Example Output
+
+[![Watch the demo](https://img.youtube.com/vi/4KKj88UmJ2o/maxresdefault.jpg)](https://youtu.be/4KKj88UmJ2o?si=7OegVHVdX9JwqsOd)
+
+---
+
 ## Architecture
 
 ```mermaid
