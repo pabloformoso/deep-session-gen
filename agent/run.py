@@ -125,9 +125,12 @@ Workflow:
 
 Rules:
 - Available tools: show_playlist, get_catalog, analyze_transition, swap_track, move_track.
-- When the user asks to find or suggest a replacement track: call get_catalog for the
-  session genre, then use analyze_transition to identify the best BPM/key match for the
-  surrounding positions, then call swap_track with your chosen replacement.
+- To find a replacement track:
+  1. Call get_catalog("current") — this returns all tracks with their real IDs.
+  2. Pick a candidate by BPM/key that fits the surrounding positions.
+  3. Call swap_track with the real ID from step 1 (e.g. "lofi-ambient--quiet-pages").
+  Never invent or guess track IDs — they must come from get_catalog output.
+- analyze_transition takes catalog IDs (from get_catalog), NOT position numbers.
 - Never call build_session or propose_playlist.
 - Never make unsolicited changes. Wait for explicit user instruction.
 - Keep responses short. You are a checkpoint, not a full editor.
@@ -461,11 +464,13 @@ def _run_checkpoint(context_variables: dict, critic_context: str | None = None) 
     """Interactive checkpoint mini-REPL. Exits on proceed signal or PROCEED sentinel."""
     _CHECKPOINT_TOOLS = [show_playlist, get_catalog, analyze_transition, swap_track, move_track]
 
-    intro = "A playlist is ready for your review."
+    genre = context_variables.get("genre", "")
+    genre_note = f" Session genre: {genre}." if genre else ""
+    intro = f"A playlist is ready for your review.{genre_note}"
     if critic_context:
         intro = (
             f"The Critic has reviewed the playlist:\n\n{critic_context}\n\n"
-            "You can make adjustments or proceed to the editor."
+            f"You can make adjustments or proceed to the editor.{genre_note}"
         )
 
     cp_messages: list[dict] = [{"role": "user", "content": intro}]

@@ -160,11 +160,18 @@ def list_genres(context_variables: dict) -> str:
 def get_catalog(genre: str, context_variables: dict) -> str:
     """List all tracks available for a genre with their BPM, Camelot key, and ID.
 
+    Use the IDs returned here when calling swap_track or analyze_transition.
+
     Args:
-        genre: Genre folder name (e.g. 'lofi - ambient', 'deep house', 'techno', 'cyberpunk')
+        genre: Genre folder name (e.g. 'lofi - ambient', 'deep house', 'techno', 'cyberpunk').
+               Pass 'current' or leave empty to use the session genre.
     """
     if not _CATALOG_PATH.exists():
         return "Error: tracks.json not found. Run 'python main.py --build-catalog' first."
+
+    # Resolve 'current' or empty genre from session context
+    if not genre or genre.lower() in ("current", "session"):
+        genre = context_variables.get("genre", genre) or genre
 
     with open(_CATALOG_PATH) as f:
         data = json.load(f)
