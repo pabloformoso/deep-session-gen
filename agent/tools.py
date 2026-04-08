@@ -591,20 +591,23 @@ def fix_incomplete(context_variables: dict) -> str:
 
 
 def redetect_bpm(genre: str, context_variables: dict) -> str:
-    """Re-detect BPM for all tracks in a genre using the current detection algorithm.
+    """Re-detect BPM for catalog tracks using the current detection algorithm.
 
     Use when BPM values look wrong (e.g. all showing 110 due to double-time detection).
-    Rewrites bpm fields in tracks.json for the specified genre.
+    Rewrites bpm fields in tracks.json.
 
     Args:
-        genre: Genre folder name to re-process (e.g. 'lofi - ambient')
+        genre: Genre folder name to re-process, or 'all' to re-process every genre.
     """
-    cmd = [sys.executable, str(_MAIN_PY), "--redetect-bpm", "--genre", genre]
+    cmd = [sys.executable, str(_MAIN_PY), "--redetect-bpm"]
+    if genre.lower() != "all":
+        cmd += ["--genre", genre]
     print(f"\n[Catalog Manager] Running: {' '.join(cmd)}\n")
     result = subprocess.run(cmd, cwd=str(_PROJECT_DIR), capture_output=False)
 
+    scope = "all genres" if genre.lower() == "all" else f"'{genre}'"
     if result.returncode == 0:
-        return f"BPM re-detected for all '{genre}' tracks. Check output above for changes."
+        return f"BPM re-detected for {scope}. Check output above for changes."
     return f"Re-detection failed (exit code {result.returncode}). Check output above."
 
 
