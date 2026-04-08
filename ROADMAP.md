@@ -1,6 +1,6 @@
 # ApolloAgents — Roadmap
 
-This is the living roadmap for ApolloAgents — from quick polish to long-term vision. Items are grouped by milestone, not by date. v1.0 shipped April 2026; v1.1 shipped April 2026. Everything below is what comes next.
+This is the living roadmap for ApolloAgents — from quick polish to long-term vision. Items are grouped by milestone, not by date. v1.0 shipped April 2026; v1.0.1 shipped April 2026. Everything below is what comes next.
 
 Contributions welcome — new tools follow the `fn(params, context_variables: dict) -> str` convention and new agents follow the bounded-role pattern (system prompt + curated tool list + structured output). See [CLAUDE.md](CLAUDE.md) for developer setup.
 
@@ -21,7 +21,7 @@ The baseline — everything that ships today.
 
 ---
 
-## v1.1 — Released ✓
+## v1.0.1 — Released ✓
 
 Small changes, meaningful impact.
 
