@@ -20,5 +20,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "markdown>=3.10.2",
     "pytest>=9.0.3",
+    "weasyprint>=68.1",
 ]

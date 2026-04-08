@@ -45,6 +45,48 @@ def _camelot_neighbors(key: str) -> set[str]:
     }
 
 
+def _camelot_step_distance(key_a: str, key_b: str) -> int:
+    """Return the minimum number of Camelot wheel steps between two keys (0–6+)."""
+    if not key_a or not key_b:
+        return 0
+    if key_a == key_b:
+        return 0
+    visited = {key_a}
+    frontier = {key_a}
+    for steps in range(1, 7):
+        next_frontier = set()
+        for k in frontier:
+            for neighbor in _camelot_neighbors(k):
+                if neighbor not in visited:
+                    if neighbor == key_b:
+                        return steps
+                    next_frontier.add(neighbor)
+                    visited.add(neighbor)
+        frontier = next_frontier
+        if not frontier:
+            break
+    return 6  # unreachable on a 24-node wheel → treat as max clash
+
+
+def _transition_warning(a: dict, b: dict) -> str:
+    """Return a warning string if the transition between a and b is problematic, else ''."""
+    warnings = []
+    bpm_a = a.get("bpm") or 0
+    bpm_b = b.get("bpm") or 0
+    if bpm_a > 0 and bpm_b > 0:
+        ratio = max(bpm_a, bpm_b) / min(bpm_a, bpm_b)
+        if ratio > 1.5:
+            warnings.append(
+                f"  ⚠ BPM clash: {bpm_a:.0f} → {bpm_b:.0f} ({ratio:.2f}× ratio — extreme stretch)"
+            )
+    steps = _camelot_step_distance(a.get("camelot_key", ""), b.get("camelot_key", ""))
+    if steps > 2:
+        warnings.append(
+            f"  ⚠ Harmonic clash: {a.get('camelot_key','?')} → {b.get('camelot_key','?')} ({steps} Camelot steps)"
+        )
+    return "\n".join(warnings)
+
+
 def _camelot_compat(key_a: str, key_b: str) -> str:
     """Return a human-readable compatibility label."""
     if not key_a or not key_b:
@@ -139,7 +181,9 @@ def get_catalog(genre: str, context_variables: dict) -> str:
         bpm = f"{t['bpm']:.0f} BPM" if t.get("bpm") else "? BPM"
         key = t.get("camelot_key") or "?"
         variant = f"  [variant of {t['variant_of']}]" if t.get("variant_of") else ""
-        lines.append(f"  [{t['id']}]  {t['display_name']:<30}  {bpm:<10}  {key}{variant}")
+        dur_sec = t.get("duration_sec")
+        dur = f"  {int(dur_sec // 60)}:{int(dur_sec % 60):02d}" if dur_sec else ""
+        lines.append(f"  [{t['id']}]  {t['display_name']:<30}  {bpm:<10}  {key}{dur}{variant}")
 
     return "\n".join(lines)
 
@@ -184,9 +228,8 @@ def propose_playlist(
         if not pool:
             pool = list(first_pass)
         track = pool.pop(0)
-        # Estimate 5 min per track if duration unknown (no WAV inspection here)
         playlist.append(track)
-        total_sec += 5 * 60
+        total_sec += track.get("duration_sec") or 300  # fall back to 5 min if not cataloged
 
     context_variables["playlist"] = playlist
     context_variables["genre"] = genre
@@ -275,8 +318,21 @@ def swap_track(position: int, track_id: str, context_variables: dict) -> str:
     playlist[position - 1] = new_track
     context_variables["playlist"] = playlist
 
+    # Pre-flight transition warnings for both affected seams
+    pre_warnings: list[str] = []
+    if position > 1:
+        w = _transition_warning(playlist[position - 2], new_track)
+        if w:
+            pre_warnings.append(f"Position {position - 1}→{position}:\n{w}")
+    if position < len(playlist):
+        w = _transition_warning(new_track, playlist[position])
+        if w:
+            pre_warnings.append(f"Position {position}→{position + 1}:\n{w}")
+
+    warning_block = ("\n".join(pre_warnings) + "\n\n") if pre_warnings else ""
     return (
-        f"Swapped position {position}:\n"
+        warning_block
+        + f"Swapped position {position}:\n"
         f"  OUT: {old['display_name']} [{old.get('camelot_key','?')}  {old.get('bpm','?')} BPM]\n"
         f"  IN:  {new_track['display_name']} [{new_track.get('camelot_key','?')}  {new_track.get('bpm','?')} BPM]\n\n"
         + _format_playlist(playlist, show_transitions=True)
@@ -302,8 +358,22 @@ def move_track(from_pos: int, to_pos: int, context_variables: dict) -> str:
     playlist.insert(to_pos - 1, track)
     context_variables["playlist"] = playlist
 
+    # Pre-flight transition warnings for affected seams around the new position
+    dest = to_pos - 1  # 0-indexed after insert
+    pre_warnings: list[str] = []
+    if dest > 0:
+        w = _transition_warning(playlist[dest - 1], track)
+        if w:
+            pre_warnings.append(f"Position {dest}→{dest + 1}:\n{w}")
+    if dest < len(playlist) - 1:
+        w = _transition_warning(track, playlist[dest + 1])
+        if w:
+            pre_warnings.append(f"Position {dest + 1}→{dest + 2}:\n{w}")
+
+    warning_block = ("\n".join(pre_warnings) + "\n\n") if pre_warnings else ""
     return (
-        f"Moved '{track['display_name']}': position {from_pos} → {to_pos}\n\n"
+        warning_block
+        + f"Moved '{track['display_name']}': position {from_pos} → {to_pos}\n\n"
         + _format_playlist(playlist, show_transitions=True)
     )
 

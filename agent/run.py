@@ -352,7 +352,7 @@ def _run_agent_anthropic(system_prompt, tool_fns, tool_index, messages, context_
         for tu in tool_uses:
             print(f"  [tool] {tu.name}({json.dumps(tu.input, ensure_ascii=False)})")
             result = _run_tool(tu.name, tu.input, context_variables, tool_index)
-            print(f"  → {result[:300]}{'...' if len(result) > 300 else ''}\n")
+            print(f"  → {result}\n")
             tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": result})
         messages.append({"role": "user", "content": tool_results})
 
@@ -381,7 +381,7 @@ def _run_agent_openai(system_prompt, tool_fns, tool_index, messages, context_var
             inputs = json.loads(tc.function.arguments)
             print(f"  [tool] {tc.function.name}({json.dumps(inputs, ensure_ascii=False)})")
             result = _run_tool(tc.function.name, inputs, context_variables, tool_index)
-            print(f"  → {result[:300]}{'...' if len(result) > 300 else ''}\n")
+            print(f"  → {result}\n")
             tool_msg = {"role": "tool", "tool_call_id": tc.id, "content": result}
             full_messages.append(tool_msg)
             messages.append(tool_msg)
@@ -506,6 +506,30 @@ def _wants_catalog(text: str) -> bool:
     return any(kw in t for kw in _CATALOG_KEYWORDS)
 
 
+def _catalog_needs_sync() -> bool:
+    """Return True if catalog is missing or has WAV files not yet cataloged."""
+    _catalog = Path(__file__).parent.parent / "tracks" / "tracks.json"
+    _tracks_dir = Path(__file__).parent.parent / "tracks"
+    if not _catalog.exists():
+        return True
+    try:
+        with open(_catalog) as f:
+            data = json.load(f)
+        cataloged = {e["file"] for e in data.get("tracks", [])}
+        for folder in os.listdir(_tracks_dir):
+            folder_path = _tracks_dir / folder
+            if not folder_path.is_dir():
+                continue
+            for fname in os.listdir(folder_path):
+                if fname.lower().endswith(".wav"):
+                    rel = f"tracks/{folder}/{fname}"
+                    if rel not in cataloged:
+                        return True
+    except Exception:
+        pass
+    return False
+
+
 def _run_catalog_manager() -> None:
     """Interactive Catalog Manager agent loop."""
     context_variables: dict = {}
@@ -561,6 +585,20 @@ def _orchestrate() -> None:
     if _wants_catalog(first_input):
         _run_catalog_manager()
         return
+
+    # ── CATALOG FRESHNESS CHECK ─────────────────────────────────────────────
+    # Proactively ask if catalog is empty or has unsynced WAV files, so
+    # first-time users don't hit a dead end without knowing the trigger keyword.
+    if _catalog_needs_sync():
+        print("[Catalog] New or missing tracks detected.")
+        try:
+            sync_reply = input("Sync the catalog before building a set? (yes/no): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nBye.")
+            return
+        if sync_reply in ("yes", "y"):
+            _run_catalog_manager()
+            return
 
     # ── PHASE 1: GENRE GUARD ────────────────────────────────────────────────
     print("── Genre Guard: let's set up your session ──\n")

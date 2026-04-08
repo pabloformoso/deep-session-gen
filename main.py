@@ -252,13 +252,22 @@ _KS_MINOR = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69
 
 
 def _get_session_theme(session_config):
-    """Return a merged theme dict: defaults overridden by session-specific values.
+    """Return a merged theme dict: defaults overridden by genre defaults, then by session-specific values.
+
+    Layer order (later wins):
+      1. DEFAULT_THEME — global fallback
+      2. GENRE_THEMES[genre] — genre-appropriate defaults (looked up from session config)
+      3. session_config["theme"] — explicit per-session overrides
 
     All theme fields are individually optional — partial overrides work.
     Sessions without a theme block get all defaults (backward compatible).
     """
     theme = dict(DEFAULT_THEME)
     if session_config:
+        # Apply genre-level defaults so partial session overrides don't lose genre colors
+        genre = session_config.get("genre", "")
+        if genre and genre.lower() in GENRE_THEMES:
+            theme.update(GENRE_THEMES[genre.lower()])
         overrides = session_config.get("theme", {})
         theme.update(overrides)
     # Resolve font path relative to project root
@@ -489,7 +498,10 @@ def fix_incomplete_catalog():
 
     tracks = data["tracks"]
     def _entry_missing(e):
-        return [f for f in ("id", "bpm", "camelot_key", "genre", "genre_folder") if not e.get(f)]
+        fields = [f for f in ("id", "bpm", "camelot_key", "genre", "genre_folder") if not e.get(f)]
+        if e.get("duration_sec") is None:
+            fields.append("duration_sec")
+        return fields
 
     incomplete = [t for t in tracks if _entry_missing(t)]
 
@@ -541,6 +553,11 @@ def fix_incomplete_catalog():
             key = detect_camelot_key(abs_file)
             entry["camelot_key"] = key
             print(f"    Camelot key detected: {key}")
+
+        if entry.get("duration_sec") is None:
+            dur = _wav_duration_sec(abs_file)
+            entry["duration_sec"] = round(dur, 1) if dur else None
+            print(f"    Duration: {dur:.1f}s" if dur else "    Duration: unknown")
 
         fixed += 1
 
@@ -602,6 +619,7 @@ def build_catalog():
         else:
             print(f"    Camelot key (from session.json): {camelot_key}")
 
+        duration_sec = _wav_duration_sec(wav_path)
         updated[rel_path] = {
             "id": _make_track_id(genre_folder, base_name, is_variant),
             "display_name": base_name,
@@ -610,6 +628,7 @@ def build_catalog():
             "genre": genre,
             "camelot_key": camelot_key,
             "bpm": bpm,
+            "duration_sec": round(duration_sec, 1) if duration_sec else None,
             "variant_of": base_name if is_variant else None,
         }
         new_count += 1
@@ -764,6 +783,7 @@ def generate_session(name, genre, duration_minutes):
     genre_theme = dict(GENRE_THEMES.get(genre.lower(), {}))
     session_config = {
         "name": name,
+        "genre": genre,
         "theme": genre_theme,
         "playlist": [
             {
@@ -1708,12 +1728,12 @@ def _render_text_rgba(text, font_path, font_size, color_rgb, stroke_rgb, stroke_
     return np.array(img, dtype=np.uint8)
 
 
-def _precompute_title_images(transitions, total_duration, video_width, theme=None):
+def _precompute_title_images(transitions, total_duration, video_width, theme):
     """Pre-render title text images for all tracks. Returns list of title dicts."""
-    font = theme["font"] if theme else FONT_PATH
-    title_color = _hex_to_rgb(theme["title_color"] if theme else RETRO_TITLE_COLOR)
-    stroke_color = _hex_to_rgb(theme["title_stroke_color"] if theme else RETRO_TITLE_STROKE)
-    font_size = theme["title_font_size"] if theme else TITLE_FONT_SIZE
+    font = theme["font"]
+    title_color = _hex_to_rgb(theme["title_color"])
+    stroke_color = _hex_to_rgb(theme["title_stroke_color"])
+    font_size = theme["title_font_size"]
     corner_font_size = max(14, int(font_size * TITLE_CORNER_SCALE))
 
     titles = []
@@ -2401,10 +2421,10 @@ def _compute_particles(t, particles, beat_times, scatter_table):
     return x, y, particles["radii"], brightness
 
 
-def _draw_particles(frame, x, y, radii, brightness, stamps, particle_color=None):
+def _draw_particles(frame, x, y, radii, brightness, stamps, particle_color):
     """Draw particles onto frame using additive blending (single float pass)."""
     h, w = frame.shape[:2]
-    color_arr = np.array(particle_color or PARTICLE_COLOR, dtype=np.float32)
+    color_arr = np.array(particle_color, dtype=np.float32)
 
     # Convert once to float32, accumulate all particles, clip once
     frame_f = frame.astype(np.float32)
