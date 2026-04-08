@@ -584,12 +584,20 @@ def _orchestrate() -> None:
 
     if _wants_catalog(first_input):
         _run_catalog_manager()
-        return
+        # Hand off to DJ set builder after catalog work is done
+        print("\n── Catalog up to date. Ready to build a set? ──\n")
+        try:
+            first_input = input("You: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nBye.")
+            return
+        if not first_input or first_input.lower() in ("quit", "exit", "q", "done"):
+            return
 
     # ── CATALOG FRESHNESS CHECK ─────────────────────────────────────────────
     # Proactively ask if catalog is empty or has unsynced WAV files, so
     # first-time users don't hit a dead end without knowing the trigger keyword.
-    if _catalog_needs_sync():
+    elif _catalog_needs_sync():
         print("[Catalog] New or missing tracks detected.")
         try:
             sync_reply = input("Sync the catalog before building a set? (yes/no): ").strip().lower()
@@ -598,7 +606,7 @@ def _orchestrate() -> None:
             return
         if sync_reply in ("yes", "y"):
             _run_catalog_manager()
-            return
+            print()  # blank line, then fall through to Genre Guard with original first_input
 
     # ── PHASE 1: GENRE GUARD ────────────────────────────────────────────────
     print("── Genre Guard: let's set up your session ──\n")
