@@ -15,10 +15,10 @@ ApolloAgents uses a multi-agent pipeline to plan, critique, and build DJ mixes. 
 
 ## Example Output
 
-Every session in [this YouTube channel](https://youtu.be/4KKj88UmJ2o?si=7OegVHVdX9JwqsOd) was built with ApolloAgents — from the earliest proof-of-concept cuts in v0.0 to today's fully orchestrated pipeline in v1.0. Same tracks, same taste, progressively better mixing as the agents learned.
+Every session in [this YouTube channel](https://www.youtube.com/watch?v=PdTd54Vl8Go) was built with ApolloAgents — from the earliest proof-of-concept cuts in v0.0 to today's fully orchestrated pipeline in v1.0. Same tracks, same taste, progressively better mixing as the agents learned.
 
-<a href="https://youtu.be/4KKj88UmJ2o?si=7OegVHVdX9JwqsOd">
-  <img src="https://img.youtube.com/vi/4KKj88UmJ2o/maxresdefault.jpg" width="480" alt="Watch on YouTube" />
+<a href="https://www.youtube.com/watch?v=PdTd54Vl8Go">
+  <img src="https://img.youtube.com/vi/PdTd54Vl8Go/maxresdefault.jpg" width="480" alt="Watch on YouTube" />
 </a>
 
 ---
