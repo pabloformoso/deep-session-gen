@@ -10,6 +10,7 @@ into the Anthropic tool-use schema automatically.
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import subprocess
@@ -401,6 +402,136 @@ def move_track(from_pos: int, to_pos: int, context_variables: dict) -> str:
         warning_block
         + f"Moved '{track['display_name']}': position {from_pos} → {to_pos}\n\n"
         + _format_playlist(playlist, show_transitions=True)
+    )
+
+
+def suggest_bridge_track(from_pos: int, to_pos: int, context_variables: dict) -> str:
+    """Find candidate bridge tracks between two BPM-mismatched playlist positions.
+
+    Args:
+        from_pos: 1-indexed position of the outgoing track
+        to_pos: 1-indexed position of the incoming track
+    """
+    playlist = context_variables.get("playlist")
+    if not playlist:
+        return "No playlist in memory. Use propose_playlist first."
+
+    n = len(playlist)
+    if not (1 <= from_pos <= n and 1 <= to_pos <= n):
+        return f"Positions must be between 1 and {n}."
+
+    track_a = playlist[from_pos - 1]
+    track_b = playlist[to_pos - 1]
+
+    bpm_a = track_a.get("bpm")
+    bpm_b = track_b.get("bpm")
+    if not bpm_a:
+        return f"Track at position {from_pos} is missing BPM data."
+    if not bpm_b:
+        return f"Track at position {to_pos} is missing BPM data."
+
+    target_bpm = math.sqrt(bpm_a * bpm_b)
+
+    try:
+        with open(_CATALOG_PATH) as f:
+            catalog = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        return f"Could not load catalog: {e}"
+
+    genre = context_variables.get("genre", "").lower()
+    playlist_ids = {t.get("id") for t in playlist}
+
+    candidates = []
+    for c in catalog:
+        if c.get("genre_folder", "").lower() != genre:
+            continue
+        if c.get("id") in playlist_ids:
+            continue
+        c_bpm = c.get("bpm")
+        if not c_bpm:
+            continue
+
+        bpm_score = 1.0 - min(abs(c_bpm - target_bpm) / target_bpm, 1.0)
+        key_dist = _camelot_step_distance(track_a.get("camelot_key", ""), c.get("camelot_key", ""))
+        key_score = max(0.0, 1.0 - key_dist / 6.0)
+        score = 0.7 * bpm_score + 0.3 * key_score
+
+        candidates.append((score, c))
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    top = candidates[:3]
+
+    if not top:
+        return (
+            f"No bridge candidates found for genre '{genre}' "
+            f"(target BPM: {target_bpm:.1f})."
+        )
+
+    lines = [
+        f"Bridge candidates between position {from_pos} "
+        f"({track_a['display_name']}, {bpm_a:.1f} BPM) and position {to_pos} "
+        f"({track_b['display_name']}, {bpm_b:.1f} BPM) — target BPM: {target_bpm:.1f}:"
+    ]
+    for score, c in top:
+        c_bpm = c["bpm"]
+        ratio_a = max(bpm_a, c_bpm) / min(bpm_a, c_bpm)
+        ratio_b = max(bpm_b, c_bpm) / min(bpm_b, c_bpm)
+        lines.append(
+            f"  {c['id']} | {c['display_name']} | {c_bpm:.1f} BPM | "
+            f"{c.get('camelot_key', '?')} | "
+            f"ratio_a: {ratio_a:.2f}× | ratio_b: {ratio_b:.2f}× | score: {score:.3f}"
+        )
+    return "\n".join(lines)
+
+
+def insert_bridge_track(after_position: int, track_id: str, context_variables: dict) -> str:
+    """Insert a bridge track into the playlist after the given 1-indexed position.
+
+    Args:
+        after_position: 1-indexed position after which to insert the new track
+        track_id: catalog ID of the track to insert
+    """
+    playlist = context_variables.get("playlist")
+    if not playlist:
+        return "No playlist in memory. Use propose_playlist first."
+
+    n = len(playlist)
+    if not (1 <= after_position <= n):
+        return f"after_position must be between 1 and {n}."
+
+    try:
+        with open(_CATALOG_PATH) as f:
+            catalog = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        return f"Could not load catalog: {e}"
+
+    new_track = next((c for c in catalog if c.get("id") == track_id), None)
+    if new_track is None:
+        return f"Track ID '{track_id}' not found in catalog."
+
+    playlist.insert(after_position, new_track)
+    context_variables["playlist"] = playlist
+
+    seam_warnings: list[str] = []
+
+    # Left seam: track before the inserted track → inserted track
+    w = _transition_warning(playlist[after_position - 1], playlist[after_position])
+    if w:
+        seam_warnings.append(f"Left seam (position {after_position}→{after_position + 1}):\n{w}")
+
+    # Right seam: inserted track → track after it (if exists)
+    if after_position + 1 < len(playlist):
+        w = _transition_warning(playlist[after_position], playlist[after_position + 1])
+        if w:
+            seam_warnings.append(
+                f"Right seam (position {after_position + 1}→{after_position + 2}):\n{w}"
+            )
+
+    warning_block = ("\n".join(seam_warnings) + "\n\n") if seam_warnings else ""
+    return (
+        warning_block
+        + f"Inserted '{new_track['display_name']}' at position {after_position + 1}.\n\n"
+        + show_playlist(context_variables)
     )
 
 
@@ -1025,6 +1156,8 @@ TOOLS = [
     get_energy_arc,
     swap_track,
     move_track,
+    suggest_bridge_track,
+    insert_bridge_track,
     build_session,
     catalog_status,
     rebuild_catalog,

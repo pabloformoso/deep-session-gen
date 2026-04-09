@@ -68,7 +68,7 @@ Making the memory system earn its keep.
 Catching problems before the render, not after.
 
 - **BPM stretch safety bounds** — Before rendering, flag track pairs requiring >1.5× pyrubberband stretch ratio. Momus warns during critique; Editor can suggest a bridge track from the catalog.
-- **Bridge track insertion** — New `suggest_bridge_track(from_bpm, to_bpm, genre)` and `insert_bridge_track(position, genre)` tools search the catalog for a track with intermediate BPM to smooth large jumps.
+- **Bridge track insertion** ✓ — New `suggest_bridge_track(from_pos, to_pos)` and `insert_bridge_track(after_position, track_id)` tools let the Editor find and insert a bridge track for BPM gaps.
 - **EQ matching at crossfade** ✓ — Apply gentle high-pass / low-pass shelving at crossfade points to reduce frequency masking between adjacent tracks in different key ranges.
 
 ---

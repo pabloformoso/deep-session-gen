@@ -41,6 +41,8 @@ from agent.tools import (
     analyze_transition,
     swap_track,
     move_track,
+    suggest_bridge_track,
+    insert_bridge_track,
     build_session,
     catalog_status,
     rebuild_catalog,
@@ -197,10 +199,15 @@ Available actions:
 - analyze_transition: diagnose a specific pair by track ID
 - swap_track: replace a track at a position
 - move_track: reorder tracks
+- suggest_bridge_track: find bridge candidates between two BPM-mismatched positions
+- insert_bridge_track: insert a bridge track after a given position
 - build_session: save and render the final mix (only on explicit user confirmation)
 
 Always call show_playlist after any swap or move.
 Be concise. Think like a DJ.
+
+If a transition has BPM stretch ratio >1.5×, call suggest_bridge_track(from_pos, to_pos) \
+to find candidates, then insert_bridge_track(after_position, track_id) to smooth the gap.
 """
 
 _CATALOG_MANAGER_SYSTEM = """\
@@ -601,7 +608,7 @@ def _run_checkpoint(context_variables: dict, critic_context: str | None = None) 
 # Orchestrator — 7 phases
 # ---------------------------------------------------------------------------
 
-_EDITOR_TOOLS = [show_playlist, analyze_transition, swap_track, move_track, build_session]
+_EDITOR_TOOLS = [show_playlist, analyze_transition, swap_track, move_track, suggest_bridge_track, insert_bridge_track, build_session]
 _CATALOG_TOOLS = [catalog_status, rebuild_catalog, fix_incomplete, redetect_bpm]
 
 # Keywords that signal the user wants catalog management
