@@ -52,14 +52,14 @@ Small changes, meaningful impact.
 
 ---
 
-## v1.2 — Smarter Learning
+## v1.2 — Smarter Learning ✓
 
 Making the memory system earn its keep.
 
 - **Per-transition ratings** — After the mix plays, prompt for a rating on each transition (1–5). Index `memory.json` by `(camelot_key_pair, bpm_diff_bucket)` so Muse and Momus learn which *specific* transitions you tolerate, not just which tracks you swapped.
-- **Energy arc quantization** — Represent the playlist internally as `[(energy_level 0–10, camelot_key, bpm), ...]`. Muse reasons over this structure explicitly to detect plateaus and missing release sections, rather than describing them in prose.
-- **Richer critic memory** — Store which positions and key pairs caused recurring problems (not just raw problem text) so Momus can flag patterns like "your 8A→3B transitions are always a problem".
-- **Gemma 4 (4B) local provider** — Add a local inference backend via Ollama so the full agent pipeline can run offline without an API key. Auto-detected from environment alongside the existing Anthropic and OpenAI providers; `AGENT_PROVIDER=ollama` + `AGENT_MODEL=gemma4:4b` to activate.
+- **Energy arc quantization** — New `get_energy_arc` tool represents the playlist as `[(energy 0–10, key, bpm), ...]`. Muse calls it after planning to detect plateaus and missing peak/release; Momus calls it during critique. Energy derived from BPM normalization + Camelot key range.
+- **Richer critic memory** — `_parse_critic_response` extracts position, key pair, and BPM diff from each problem line into `structured_problems`. `read_memory` aggregates by key pair across sessions and flags recurring clashes.
+- **Gemma 4 (4B) local provider** — Full offline operation via Ollama. Auto-detected from environment alongside Anthropic and OpenAI; `AGENT_PROVIDER=ollama` + `AGENT_MODEL=gemma4:4b` to activate. Uses OpenAI-compatible `/v1/chat/completions` endpoint.
 
 ---
 
