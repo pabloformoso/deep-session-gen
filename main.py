@@ -1042,7 +1042,7 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
             cut_sec = find_beat_near(beats, duration_sec - CROSSFADE_SEC)
             mix = segment[: int(cut_sec * 1000)]
             mix_bpm = native_bpm
-            transitions.append({"name": name, "start_sec": 0.0})
+            transitions.append({"name": name, "start_sec": 0.0, "stretch_ratio": 1.0})
             print(f"  Body: {cut_sec:.1f}s | Mix: {len(mix)/1000/60:.1f} min")
             continue
 
@@ -1071,7 +1071,10 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
         # Record transition timestamp (where the crossfade begins)
         crossfade_ms = min(CROSSFADE_SEC * 1000, len(mix), len(incoming))
         track_start_sec = (len(mix) - crossfade_ms) / 1000.0
-        transitions.append({"name": name, "start_sec": track_start_sec})
+        stretch_ratio = max(mix_bpm, native_bpm) / min(mix_bpm, native_bpm) if min(mix_bpm, native_bpm) > 0 else 1.0
+        if stretch_ratio > 1.5:
+            print(f"  [STRETCH WARNING] Ratio {stretch_ratio:.2f}× ({mix_bpm:.1f} → {native_bpm:.1f} BPM)")
+        transitions.append({"name": name, "start_sec": track_start_sec, "stretch_ratio": round(stretch_ratio, 3)})
 
         # --- Crossfade ---
         mix = mix.append(incoming, crossfade=crossfade_ms)
