@@ -189,6 +189,7 @@ Rules:
 - If no problems: write "PROBLEMS: none" and "VERDICT: APPROVED".
 - Do NOT swap, move, or propose tracks. Only critique.
 - Do NOT add prose after the VERDICT line.
+- Any transition showing ⚠ Stretch >1.5× is a mandatory PROBLEMS entry — bridge track required.
 """
 
 _EDITOR_SYSTEM = """\

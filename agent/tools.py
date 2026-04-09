@@ -298,6 +298,7 @@ def analyze_transition(track_a_id: str, track_b_id: str, context_variables: dict
     bpm_a = a.get("bpm") or 0
     bpm_b = b.get("bpm") or 0
     bpm_diff = abs(bpm_a - bpm_b)
+    ratio = max(bpm_a, bpm_b) / min(bpm_a, bpm_b) if min(bpm_a, bpm_b) > 0 else 1.0
     key_compat = _camelot_compat(a.get("camelot_key"), b.get("camelot_key"))
 
     if bpm_diff == 0:
@@ -309,11 +310,14 @@ def analyze_transition(track_a_id: str, track_b_id: str, context_variables: dict
     else:
         bpm_status = f"{bpm_diff:.1f} BPM diff — large jump, consider a bridge track"
 
-    return (
+    result = (
         f"Transition: {a['display_name']} → {b['display_name']}\n"
         f"  BPM:      {bpm_a:.0f} → {bpm_b:.0f}  ({bpm_status})\n"
         f"  Key:      {a.get('camelot_key','?')} → {b.get('camelot_key','?')}  ({key_compat})\n"
     )
+    if ratio > 1.5:
+        result += f"\n  ⚠ Stretch:  pyrubberband ratio {ratio:.2f}× — recommend bridge track"
+    return result
 
 
 def swap_track(position: int, track_id: str, context_variables: dict) -> str:
