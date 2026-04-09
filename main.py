@@ -22,6 +22,7 @@ from openai import OpenAI
 from PIL import Image, ImageFilter
 from pydub import AudioSegment
 from scipy.ndimage import gaussian_filter, gaussian_filter1d
+from scipy.signal import butter, lfilter
 
 # === Configuration ===
 TRACKS_BASE_DIR = "./tracks"
@@ -296,6 +297,28 @@ def _numpy_to_segment(data, segment):
         frame_rate=segment.frame_rate,
         channels=segment.channels,
     )
+
+
+def _apply_crossfade_eq(segment: AudioSegment, role: str, key_distance: int) -> AudioSegment:
+    """Apply shelving EQ to a crossfade segment to reduce frequency masking.
+
+    role: 'outgoing' applies a gentle low-pass shelf (~8 kHz cutoff)
+          'incoming' applies a gentle high-pass shelf (~200 Hz cutoff)
+    key_distance: Camelot steps (0-6). 0 = no filter. Strength scales up to distance=3.
+    """
+    strength = min(key_distance / 3.0, 1.0)
+    if strength < 0.01:
+        return segment
+    y = _segment_to_numpy(segment)
+    sr = segment.frame_rate
+    nyq = sr / 2.0
+    if role == "outgoing":
+        b, a = butter(2, 8000.0 / nyq, btype='low')
+    else:  # "incoming"
+        b, a = butter(2, 200.0 / nyq, btype='high')
+    y_filtered = lfilter(b, a, y, axis=0)
+    y_out = (1.0 - strength) * y + strength * y_filtered
+    return _numpy_to_segment(y_out, segment)
 
 
 def change_tempo(segment, factor):
@@ -762,6 +785,27 @@ def camelot_neighbors(key):
     }
 
 
+def _camelot_step_distance(key_a: str, key_b: str) -> int:
+    """Return the minimum Camelot wheel steps between two keys (0-6)."""
+    if not key_a or not key_b or key_a == key_b:
+        return 0
+    visited = {key_a}
+    frontier = {key_a}
+    for steps in range(1, 7):
+        next_frontier = set()
+        for k in frontier:
+            for neighbor in camelot_neighbors(k):
+                if neighbor not in visited:
+                    if neighbor == key_b:
+                        return steps
+                    next_frontier.add(neighbor)
+                    visited.add(neighbor)
+        frontier = next_frontier
+        if not frontier:
+            break
+    return 6
+
+
 def harmonic_sort(tracks):
     """Order tracks using Camelot harmonic walk with fallback to any remaining track."""
     if not tracks:
@@ -918,7 +962,7 @@ def _track_display_name(filepath):
     return os.path.splitext(os.path.basename(filepath))[0]
 
 
-def _adjust_outgoing_tail(mix, mix_bpm, trans_bpm):
+def _adjust_outgoing_tail(mix, mix_bpm, trans_bpm, key_distance: int = 0):
     """Ramp the tail of the current mix from mix_bpm toward trans_bpm."""
     if abs(mix_bpm - trans_bpm) < 0.5:
         return mix
@@ -940,11 +984,12 @@ def _adjust_outgoing_tail(mix, mix_bpm, trans_bpm):
     if len(ramp_part) > 0:
         ramp_part = tempo_ramp(ramp_part, mix_bpm, mix_bpm, trans_bpm)
     xfade_part = change_speed(xfade_part, trans_bpm / mix_bpm)
+    xfade_part = _apply_crossfade_eq(xfade_part, "outgoing", key_distance)
 
     return pre_tail + ramp_part + xfade_part
 
 
-def _prepare_incoming(segment, native_bpm, trans_bpm, beats, duration_sec):
+def _prepare_incoming(segment, native_bpm, trans_bpm, beats, duration_sec, key_distance: int = 0):
     """Split and tempo-adjust the incoming track into three sections:
     1. Crossfade section  — at trans_bpm
     2. Ramp section       — gradual trans_bpm → native_bpm
@@ -964,6 +1009,7 @@ def _prepare_incoming(segment, native_bpm, trans_bpm, beats, duration_sec):
     if abs(native_bpm - trans_bpm) > 0.5:
         xfade_part = change_speed(xfade_part, trans_bpm / native_bpm)
         ramp_part = tempo_ramp(ramp_part, native_bpm, trans_bpm, native_bpm)
+    xfade_part = _apply_crossfade_eq(xfade_part, "incoming", key_distance)
 
     return xfade_part + ramp_part + body_part
 
@@ -1008,12 +1054,18 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
         print(f"  {mix_bpm:.1f} → {native_bpm:.1f} BPM "
               f"(Δ{bpm_diff:.1f}, {strategy}, xfade@{trans_bpm:.1f})")
 
+        # --- Key distance for EQ matching ---
+        key_dist = _camelot_step_distance(
+            tracks[i - 1].get("camelot_key", ""),
+            track.get("camelot_key", "")
+        )
+
         # --- Adjust outgoing tail ---
-        mix = _adjust_outgoing_tail(mix, mix_bpm, trans_bpm)
+        mix = _adjust_outgoing_tail(mix, mix_bpm, trans_bpm, key_distance=key_dist)
 
         # --- Prepare incoming track ---
         incoming = _prepare_incoming(
-            segment, native_bpm, trans_bpm, beats, duration_sec
+            segment, native_bpm, trans_bpm, beats, duration_sec, key_distance=key_dist
         )
 
         # Record transition timestamp (where the crossfade begins)
