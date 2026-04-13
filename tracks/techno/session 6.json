@@ -1,0 +1,37 @@
+{
+  "name": "Session 6 — Dark Techno",
+  "description": "A descent into the machine. Industrial rhythms, crushing kicks, and relentless modular sequences forged in the underground. No light escapes.",
+  "theme": {
+    "font": "fonts/ShareTechMono-Regular.ttf",
+    "title_color": "#FF1744",
+    "title_stroke_color": "#4A0010",
+    "bg_color": [5, 2, 8],
+    "waveform_color": [255, 23, 68],
+    "particle_color": [255, 50, 80],
+    "bg_darken": 0.85,
+    "title_font_size": 32,
+    "artwork_style": "dark-techno"
+  },
+  "playlist": [
+    {"display_name": "Dead Signal", "file": "Dead Signal.wav", "camelot_key": "1A", "genre": "Ambient Techno"},
+    {"display_name": "Abyssal Drop", "file": "Abyssal Drop.wav", "camelot_key": "2A", "genre": "Ambient Techno"},
+    {"display_name": "Phantom Circuit", "file": "Phantom Circuit.wav", "camelot_key": "3A", "genre": "Dark Techno"},
+    {"display_name": "Analog Ritual", "file": "Analog Ritual.wav", "camelot_key": "3A", "genre": "Dark Techno"},
+    {"display_name": "Black Mercury", "file": "Black Mercury.wav", "camelot_key": "4A", "genre": "Dark Techno"},
+    {"display_name": "Hex Code", "file": "Hex Code.wav", "camelot_key": "5A", "genre": "Acid Techno"},
+    {"display_name": "Subzero", "file": "Subzero.wav", "camelot_key": "5A", "genre": "Industrial Techno"},
+    {"display_name": "Tesla Coil", "file": "Tesla Coil.wav", "camelot_key": "6A", "genre": "Industrial Techno"},
+    {"display_name": "Reactor Core", "file": "Reactor Core.wav", "camelot_key": "7A", "genre": "Hard Techno"},
+    {"display_name": "Nerve Agent", "file": "Nerve Agent.wav", "camelot_key": "8A", "genre": "Hard Techno"},
+    {"display_name": "Rave Doctrine", "file": "Rave Doctrine.wav", "camelot_key": "8A", "genre": "Hard Techno"},
+    {"display_name": "Forgotten Rave", "file": "Forgotten Rave.wav", "camelot_key": "9A", "genre": "Industrial Techno"},
+    {"display_name": "Forgotten Rave", "file": "Forgotten Rave (1).wav", "camelot_key": "9A", "genre": "Industrial Techno"},
+    {"display_name": "Reactor Core", "file": "Reactor Core (1).wav", "camelot_key": "8A", "genre": "Hard Techno"},
+    {"display_name": "Nerve Agent", "file": "Nerve Agent (1).wav", "camelot_key": "7A", "genre": "Dark Techno"},
+    {"display_name": "Tesla Coil", "file": "Tesla Coil (1).wav", "camelot_key": "6A", "genre": "Dark Techno"},
+    {"display_name": "Hex Code", "file": "Hex Code (1).wav", "camelot_key": "5A", "genre": "Acid Techno"},
+    {"display_name": "Black Mercury", "file": "Black Mercury (1).wav", "camelot_key": "4A", "genre": "Dark Techno"},
+    {"display_name": "Warehouse Echo", "file": "Warehouse Echo.wav", "camelot_key": "3A", "genre": "Ambient Techno"},
+    {"display_name": "Last Transmission", "file": "Last Transmission.wav", "camelot_key": "2A", "genre": "Ambient Techno"}
+  ]
+}

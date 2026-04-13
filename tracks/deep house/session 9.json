@@ -1,0 +1,40 @@
+{
+  "name": "Session 9 — Submersion",
+  "description": "A 90-minute deep house descent. Warm bass pulses, hypnotic loops, and midnight textures — rising slowly from dark grooves into luminous tension before sinking back down.",
+  "theme": {
+    "font": "fonts/PressStart2P-Regular.ttf",
+    "title_color": "#6A5AFF",
+    "title_stroke_color": "#1A0A3E",
+    "bg_color": [12, 8, 28],
+    "waveform_color": [106, 90, 255],
+    "particle_color": [140, 120, 255],
+    "bg_darken": 0.7,
+    "title_font_size": 32,
+    "artwork_style": "deep-house-neon"
+  },
+  "playlist": [
+    {"display_name": "Niebla en la Pantalla",   "file": "Niebla en la Pantalla.wav",       "camelot_key": "6A", "genre": "Deep House"},
+    {"display_name": "Midnight Circuit Flow",    "file": "Midnight Circuit Flow.wav",       "camelot_key": "6A", "genre": "Deep House"},
+    {"display_name": "Hipnosis en 2A",           "file": "Hipnosis en 2A.wav",              "camelot_key": "6A", "genre": "Deep House"},
+    {"display_name": "Midnight Aperture",        "file": "Midnight Aperture.wav",           "camelot_key": "6A", "genre": "Deep House"},
+    {"display_name": "Velvet Circuit",           "file": "Velvet Circuit.wav",              "camelot_key": "8A", "genre": "Deep House"},
+    {"display_name": "Velvet Circuit",           "file": "Velvet Circuit (1).wav",          "camelot_key": "8A", "genre": "Deep House"},
+    {"display_name": "Luminous Tension",         "file": "Luminous Tension.wav",            "camelot_key": "8A", "genre": "Deep House"},
+    {"display_name": "Órbita Fija",              "file": "Órbita Fija (1).wav",             "camelot_key": "8A", "genre": "Deep House"},
+    {"display_name": "Midnight Pressure",        "file": "Midnight Pressure.wav",           "camelot_key": "9A", "genre": "Deep House"},
+    {"display_name": "Luminous Circuit",         "file": "Luminous Circuit (1).wav",        "camelot_key": "11A", "genre": "Deep House"},
+    {"display_name": "Luminous Tension",         "file": "Luminous Tension (1).wav",        "camelot_key": "11A", "genre": "Deep House"},
+    {"display_name": "Midnight Circuit Flow",    "file": "Midnight Circuit Flow (1).wav",   "camelot_key": "1A", "genre": "Deep House"},
+    {"display_name": "Midnight Lattice",         "file": "Midnight Lattice (1).wav",        "camelot_key": "1A", "genre": "Deep House"},
+    {"display_name": "Late-Night Tension",       "file": "Late-Night Tension.wav",          "camelot_key": "1A", "genre": "Deep House"},
+    {"display_name": "Midnight Aperture",        "file": "Midnight Aperture (1).wav",       "camelot_key": "1A", "genre": "Deep House"},
+    {"display_name": "Late-Night Tension",       "file": "Late-Night Tension (1).wav",      "camelot_key": "1A", "genre": "Deep House"},
+    {"display_name": "Órbita Fija",              "file": "Órbita Fija.wav",                 "camelot_key": "3A", "genre": "Deep House"},
+    {"display_name": "Midnight Lattice",         "file": "Midnight Lattice.wav",            "camelot_key": "3A", "genre": "Deep House"},
+    {"display_name": "Luminous Circuit",         "file": "Luminous Circuit.wav",            "camelot_key": "3A", "genre": "Deep House"},
+    {"display_name": "Hipnosis en 2A",           "file": "Hipnosis en 2A (1).wav",          "camelot_key": "3A", "genre": "Deep House"},
+    {"display_name": "Minor Orbit",              "file": "Minor Orbit.wav",                 "camelot_key": "4A", "genre": "Deep House"},
+    {"display_name": "Minor Orbit",              "file": "Minor Orbit (1).wav",             "camelot_key": "4A", "genre": "Deep House"},
+    {"display_name": "Midnight Pressure",        "file": "Midnight Pressure (1).wav",       "camelot_key": "4A", "genre": "Deep House"}
+  ]
+}

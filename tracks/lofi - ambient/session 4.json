@@ -1,0 +1,36 @@
+{
+  "name": "Session 4 — LoFi Study",
+  "description": "A warm, mellow LoFi study session. Dusty beats, vinyl crackle, and soft Rhodes chords to keep you focused through late-night pages.",
+  "theme": {
+    "font": "fonts/Quicksand-Regular.ttf",
+    "title_color": "#E8D5B7",
+    "title_stroke_color": "#5C4A32",
+    "bg_color": [18, 15, 12],
+    "waveform_color": [180, 160, 130],
+    "particle_color": [200, 180, 150],
+    "bg_darken": 0.85,
+    "title_font_size": 36,
+    "artwork_style": "anime"
+  },
+  "playlist": [
+    {"display_name": "Rainy Window Study", "file": "Rainy Window Study.wav", "camelot_key": "1A", "genre": "Lo-Fi Hip Hop"},
+    {"display_name": "Coffee Shop Morning", "file": "Coffee Shop Morning.wav", "camelot_key": "3A", "genre": "Chillhop"},
+    {"display_name": "Late Night Pages", "file": "Late Night Pages.wav", "camelot_key": "4A", "genre": "Lo-Fi Hip Hop"},
+    {"display_name": "Warm Lamp Glow", "file": "Warm Lamp Glow.wav", "camelot_key": "2A", "genre": "Ambient Lo-Fi"},
+    {"display_name": "Old Bookshelf Dust", "file": "Old Bookshelf Dust.wav", "camelot_key": "5A", "genre": "Lo-Fi Hip Hop"},
+    {"display_name": "Pencil Scratch Beat", "file": "Pencil Scratch Beat.wav", "camelot_key": "6A", "genre": "Chillhop"},
+    {"display_name": "Library After Hours", "file": "Library After Hours.wav", "camelot_key": "3A", "genre": "Ambient Lo-Fi"},
+    {"display_name": "Soft Focus", "file": "Soft Focus.wav", "camelot_key": "1A", "genre": "Lo-Fi Hip Hop"},
+    {"display_name": "Vinyl Crackle Dreams", "file": "Vinyl Crackle Dreams.wav", "camelot_key": "4A", "genre": "Lo-Fi Hip Hop"},
+    {"display_name": "Chamomile Tape", "file": "Chamomile Tape.wav", "camelot_key": "2A", "genre": "Chillhop"},
+    {"display_name": "Handwritten Notes", "file": "Handwritten Notes.wav", "camelot_key": "5A", "genre": "Lo-Fi Hip Hop"},
+    {"display_name": "Foggy Campus Walk", "file": "Foggy Campus Walk.wav", "camelot_key": "6A", "genre": "Ambient Lo-Fi"},
+    {"display_name": "Desk Clock Tick", "file": "Desk Clock Tick.wav", "camelot_key": "1A", "genre": "Lo-Fi Hip Hop"},
+    {"display_name": "Worn Paperback", "file": "Worn Paperback.wav", "camelot_key": "4A", "genre": "Lo-Fi Hip Hop"},
+    {"display_name": "Windowsill Rain", "file": "Windowsill Rain.wav", "camelot_key": "2A", "genre": "Ambient Lo-Fi"},
+    {"display_name": "Murmur of Pages", "file": "Murmur of Pages.wav", "camelot_key": "5A", "genre": "Chillhop"},
+    {"display_name": "Sleepy Chords", "file": "Sleepy Chords.wav", "camelot_key": "6A", "genre": "Lo-Fi Hip Hop"},
+    {"display_name": "Last Cup of Tea", "file": "Last Cup of Tea.wav", "camelot_key": "3A", "genre": "Ambient Lo-Fi"},
+    {"display_name": "Goodnight Tape Hiss", "file": "Goodnight Tape Hiss.wav", "camelot_key": "1A", "genre": "Ambient Lo-Fi"}
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Session 3",
+  "description": "Cyberpunk descent: warming up through dark synths, rising into high-energy grid sectors, peaking at full-drive intensity, then winding down through corrupted memory into rebirth.",
+  "playlist": [
+    {"display_name": "Akira Warmup",     "file": "Akira Warmup.wav",     "camelot_key": "2A",  "genre": "Cyberpunk"},
+    {"display_name": "Akira Boulevard",  "file": "Akira Boulevard.wav",  "camelot_key": "4A",  "genre": "Cyberpunk"},
+    {"display_name": "Memory Overflow",  "file": "Memory Overflow.wav",  "camelot_key": "4A",  "genre": "Cyberpunk"},
+    {"display_name": "Live Proccesor",   "file": "Live Proccesor.wav",   "camelot_key": "4A",  "genre": "Cyberpunk"},
+    {"display_name": "Synapse Grid",     "file": "Synapse Grid.wav",     "camelot_key": "7B",  "genre": "Cyberpunk"},
+    {"display_name": "Sector 41",        "file": "Sector 41.wav",        "camelot_key": "7B",  "genre": "Cyberpunk"},
+    {"display_name": "Sector 9",         "file": "Sector 9.wav",         "camelot_key": "4A",  "genre": "Cyberpunk"},
+    {"display_name": "Zero Day",         "file": "Zero Day.wav",         "camelot_key": "11A", "genre": "Cyberpunk"},
+    {"display_name": "Chrome Wired",     "file": "Chrome Wired.wav",     "camelot_key": "12A", "genre": "Cyberpunk"},
+    {"display_name": "Chrome Horizon",   "file": "Chrome Horizon.wav",   "camelot_key": "9A",  "genre": "Cyberpunk"},
+    {"display_name": "Corrupt Memory",   "file": "Corrupt Memory.wav",   "camelot_key": "8B",  "genre": "Cyberpunk"},
+    {"display_name": "The Rebirth",      "file": "The Rebirth.wav",      "camelot_key": "2A",  "genre": "Cyberpunk"}
+  ]
+}
