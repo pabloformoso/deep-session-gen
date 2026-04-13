@@ -73,17 +73,47 @@ Catching problems before the render, not after.
 
 ---
 
-## v1.4 — Live Local Playback ⭐
+## v1.4 — Live Local Playback ✓
 
 > *"Ask the agent to play music"*
 
 The agent can already build a mix — now it can play it back, and let you hear transitions before committing to a build.
 
-- **`play_mix(session_name)`** — After build, streams `mix_output.wav` locally via `afplay` (macOS), `aplay` (Linux), or `sounddevice` (cross-platform). No video render required.
-- **`preview_transition(pos_a, pos_b)`** — During the Editor REPL, extracts and plays the crossfade zone (±15s around the transition point) so you can hear it before building the full mix.
-- **`play_track(track_id, start_sec, duration_sec)`** — Audition individual tracks from the catalog during planning. Useful for tracks you haven't heard in a while.
+- **`play_mix(session_name)`** ✓ — After build, streams `mix_output.wav` locally via `afplay` (macOS), `ffplay` (ffmpeg), or `aplay` (Linux ALSA). Non-blocking background playback.
+- **`preview_transition(pos_a, pos_b, session_name)`** ✓ — During the Editor REPL, extracts and plays the ±15s crossfade zone between two adjacent tracks (requires a rendered mix).
+- **`play_track(track_id, start_sec, duration_sec)`** ✓ — Audition individual tracks from the catalog during planning. Supports time-sliced playback.
 
 All three tools added to `agent/tools.py` and exposed to the Editor agent.
+
+---
+
+## v1.5 — LiveDJ Agent
+
+> *"Spin it live"*
+
+A new proactive event-driven agent that performs a live set in real time,
+without rendering a video or a full mix file first.
+
+- **`LiveEngine`** (`agent/live_engine.py`) — two-deck audio engine: loads tracks
+  as numpy arrays, pre-stretches the next track in a background thread, blends
+  decks with a linear fade over `CROSSFADE_SEC`. Fires events to a
+  `threading.Queue` shared with the agent.
+- **Event system** — six event types: `track_started`, `approaching_crossfade`,
+  `crossfade_triggered`, `crossfade_finished`, `track_ended`, `session_ended`.
+- **`LiveDJ` agent** (`agent/live_dj.py`) — proactive LLM agent that reacts to
+  engine events. On `approaching_crossfade`: evaluates transition quality and
+  decides to confirm, extend, or crossfade early. On user commands: translates
+  natural language to engine actions.
+- **Hot cues + beatgrid** — optional `hot_cues` and `beatgrid` fields in
+  `tracks.json`. Engine uses OUT hot cue as crossfade point and IN hot cue as
+  incoming track start. Falls back gracefully when absent.
+- **`import_rekordbox(xml_path)`** — catalog tool to import hot cues and beatgrid
+  from a Rekordbox XML export via `pyrekordbox`. Enriches `tracks.json` in place.
+- **`start_live_session(session_name)`** — Editor tool that launches the LiveDJ
+  loop. Coexists with `build_session`; either can be used after set approval.
+- **New deps**: `sounddevice`, `pyrekordbox`.
+- **Tests**: `tests/test_live_engine.py` (state machine, hot cues, events),
+  `tests/test_live_tools.py` (all six live tools with mocked engine).
 
 ---
 

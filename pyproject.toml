@@ -16,6 +16,8 @@ dependencies = [
     "pyrubberband>=0.4.0",
     "python-dotenv>=1.0.0",
     "soundfile>=0.13.1",
+    "sounddevice>=0.5.0",
+    "pyrekordbox>=0.4.0",
 ]
 
 [dependency-groups]

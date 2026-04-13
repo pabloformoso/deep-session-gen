@@ -505,6 +505,24 @@ def detect_bpm(filepath, genre_folder=""):
     return round(bpm, 1)
 
 
+def detect_beatgrid(filepath: str, bpm: float | None = None) -> dict:
+    """Detect beatgrid: first beat position and confirmed BPM via librosa.
+
+    Uses beat_track() with a BPM hint (from detect_bpm) so the phase estimation
+    is anchored to the correct tempo. Returns a dict ready to store in tracks.json:
+        {"bpm": float, "first_beat_sec": float}
+    """
+    y, sr = librosa.load(filepath, sr=None, mono=True)
+    start_bpm = bpm or 120.0
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=start_bpm)
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+    first_beat = float(beat_times[0]) if len(beat_times) > 0 else 0.0
+    return {
+        "bpm": round(float(np.squeeze(tempo)), 3),
+        "first_beat_sec": round(first_beat, 3),
+    }
+
+
 def detect_camelot_key(filepath):
     """Detect musical key via chromagram and Krumhansl-Schmuckler profiles.
 
@@ -581,6 +599,8 @@ def fix_incomplete_catalog():
         fields = [f for f in ("id", "bpm", "camelot_key", "genre", "genre_folder") if not e.get(f)]
         if e.get("duration_sec") is None:
             fields.append("duration_sec")
+        if e.get("beatgrid") is None:
+            fields.append("beatgrid")
         return fields
 
     incomplete = [t for t in tracks if _entry_missing(t)]
@@ -639,11 +659,60 @@ def fix_incomplete_catalog():
             entry["duration_sec"] = round(dur, 1) if dur else None
             print(f"    Duration: {dur:.1f}s" if dur else "    Duration: unknown")
 
+        if entry.get("beatgrid") is None and entry.get("bpm"):
+            entry["beatgrid"] = detect_beatgrid(abs_file, entry.get("bpm"))
+            print(f"    Beatgrid: first beat at {entry['beatgrid']['first_beat_sec']}s")
+
         fixed += 1
 
     with open(CATALOG_PATH, "w") as f:
         json.dump({"tracks": tracks}, f, indent=2, ensure_ascii=False)
     print(f"\nFixed {fixed} entries → {CATALOG_PATH}")
+
+
+def generate_beatgrid_catalog(genre_filter: str | None = None) -> None:
+    """Generate beatgrid for all catalog entries that are missing it.
+
+    Skips entries that already have a beatgrid. Does not re-analyse entries
+    that have it — safe to run repeatedly.
+    genre_filter: if given, only process entries in that genre_folder.
+    """
+    if not os.path.exists(CATALOG_PATH):
+        print("Error: catalog not found. Run --build-catalog first.")
+        sys.exit(1)
+
+    with open(CATALOG_PATH) as f:
+        data = json.load(f)
+
+    tracks = data["tracks"]
+    scope = tracks
+    if genre_filter:
+        scope = [t for t in tracks if t.get("genre_folder", "").lower() == genre_filter.lower()]
+        print(f"=== Generating beatgrid for genre '{genre_filter}' ===\n")
+    else:
+        print("=== Generating beatgrid for all tracks ===\n")
+
+    pending = [t for t in scope if t.get("beatgrid") is None and t.get("bpm")]
+    if not pending:
+        print("All tracks already have a beatgrid. Nothing to do.")
+        return
+
+    print(f"{len(pending)} track(s) need beatgrid analysis.\n")
+    updated = 0
+    for entry in pending:
+        abs_file = os.path.join(_SCRIPT_DIR, entry["file"]) if not os.path.isabs(entry["file"]) else entry["file"]
+        name = entry.get("display_name", os.path.basename(entry["file"]))
+        if not os.path.exists(abs_file):
+            print(f"  [SKIP] {name} — file not found")
+            continue
+        print(f"  {name}")
+        entry["beatgrid"] = detect_beatgrid(abs_file, entry.get("bpm"))
+        print(f"    first beat: {entry['beatgrid']['first_beat_sec']}s")
+        updated += 1
+
+    with open(CATALOG_PATH, "w") as f:
+        json.dump({"tracks": tracks}, f, indent=2, ensure_ascii=False)
+    print(f"\nBeatgrid generated for {updated} track(s) → {CATALOG_PATH}")
 
 
 def build_catalog():
@@ -670,11 +739,18 @@ def build_catalog():
         rel_path = os.path.relpath(wav_path).replace("\\", "/")
         if rel_path in existing:
             entry = existing[rel_path]
-            if entry.get("duration_sec") is not None:
+            needs_patch = False
+            if entry.get("duration_sec") is None:
+                entry["duration_sec"] = round(_wav_duration_sec(wav_path), 1) or None
+                needs_patch = True
+            if entry.get("beatgrid") is None and entry.get("bpm"):
+                print(f"  [beatgrid] {os.path.basename(wav_path)}")
+                entry["beatgrid"] = detect_beatgrid(wav_path, entry.get("bpm"))
+                needs_patch = True
+            if needs_patch:
+                updated[rel_path] = entry
+            else:
                 continue  # fully cataloged, skip
-            # Existing entry missing duration_sec — patch it without re-analysing audio
-            entry["duration_sec"] = round(_wav_duration_sec(wav_path), 1) or None
-            updated[rel_path] = entry
             continue
 
         if genre_folder not in folder_lookups:
@@ -698,6 +774,8 @@ def build_catalog():
 
         bpm = detect_bpm(wav_path, genre_folder)
         print(f"    BPM: {bpm}")
+        beatgrid = detect_beatgrid(wav_path, bpm)
+        print(f"    Beatgrid: first beat at {beatgrid['first_beat_sec']}s")
 
         if not camelot_key:
             camelot_key = detect_camelot_key(wav_path)
@@ -716,6 +794,7 @@ def build_catalog():
             "bpm": bpm,
             "duration_sec": round(duration_sec, 1) if duration_sec else None,
             "variant_of": base_name if is_variant else None,
+            "beatgrid": beatgrid,
         }
         new_count += 1
 
@@ -2763,6 +2842,8 @@ def _parse_args():
                         help="Re-analyse catalog entries with missing BPM or Camelot key")
     parser.add_argument("--redetect-bpm", action="store_true",
                         help="Re-detect BPM for all catalog entries (use after updating detection logic)")
+    parser.add_argument("--generate-beatgrid", action="store_true",
+                        help="Generate beatgrid (first beat position) for catalog entries that are missing it")
     parser.add_argument("--name", default=None,
                         help="Session name (used as output folder name)")
     parser.add_argument("--genre", default=None,
@@ -2796,6 +2877,11 @@ def main():
     # --redetect-bpm: force BPM re-detection for all (or one genre's) entries and exit
     if args.redetect_bpm:
         redetect_bpm_catalog(genre_filter=args.genre)
+        return
+
+    # --generate-beatgrid: compute first_beat_sec for entries missing beatgrid and exit
+    if args.generate_beatgrid:
+        generate_beatgrid_catalog(genre_filter=args.genre)
         return
 
     # Validate required args for session generation

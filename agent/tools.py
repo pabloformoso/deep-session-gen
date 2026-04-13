@@ -13,9 +13,13 @@ import json
 import math
 import os
 import random
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+from pydub import AudioSegment
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -161,6 +165,41 @@ def _harmonic_sort(tracks: list[dict]) -> list[dict]:
         ordered.append(next_track)
         current = next_track
     return ordered
+
+
+# ---------------------------------------------------------------------------
+# Playback helper
+# ---------------------------------------------------------------------------
+
+def _play_audio(path: str, block: bool = True) -> str:
+    """Play an audio file using the best available backend.
+
+    Tries afplay (macOS), ffplay (ffmpeg), aplay (Linux ALSA) in order.
+    Returns '' on success, an error string on failure.
+    """
+    backends = [
+        ("afplay", ["afplay", path]),
+        ("ffplay",  ["ffplay", "-nodisp", "-autoexit", path]),
+        ("aplay",   ["aplay", path]),
+    ]
+    for name, cmd in backends:
+        if shutil.which(name):
+            try:
+                if block:
+                    subprocess.run(cmd, check=True,
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
+                else:
+                    subprocess.Popen(cmd,
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+                return ""
+            except subprocess.CalledProcessError as e:
+                return f"Playback error ({name}): {e}"
+    return (
+        "No audio player found. "
+        "Install ffmpeg (provides ffplay), afplay (macOS), or aplay (Linux ALSA)."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -772,6 +811,27 @@ def redetect_bpm(genre: str, context_variables: dict) -> str:
     return f"Re-detection failed (exit code {result.returncode}). Check output above."
 
 
+def generate_beatgrid(genre: str, context_variables: dict) -> str:
+    """Generate beatgrid (first beat position + confirmed BPM) for catalog tracks missing it.
+
+    Safe to run repeatedly — skips entries that already have a beatgrid.
+    Beatgrid data is used by the LiveDJ engine for beat-accurate crossfades.
+
+    Args:
+        genre: Genre folder name to process, or 'all' to process every genre.
+    """
+    cmd = [sys.executable, str(_MAIN_PY), "--generate-beatgrid"]
+    if genre.lower() != "all":
+        cmd += ["--genre", genre]
+    print(f"\n[Catalog Manager] Running: {' '.join(cmd)}\n")
+    result = subprocess.run(cmd, cwd=str(_PROJECT_DIR), capture_output=False)
+
+    scope = "all genres" if genre.lower() == "all" else f"'{genre}'"
+    if result.returncode == 0:
+        return f"Beatgrid generated for {scope}. LiveDJ will now use beat-accurate crossfade points."
+    return f"Beatgrid generation failed (exit code {result.returncode}). Check output above."
+
+
 def rebuild_catalog(context_variables: dict) -> str:
     """Scan all genre folders and add any new WAV files to tracks.json.
 
@@ -1151,6 +1211,263 @@ def get_energy_arc(context_variables: dict) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# v1.4 — Live Local Playback
+# ---------------------------------------------------------------------------
+
+def play_mix(session_name: str, context_variables: dict) -> str:
+    """Stream mix_output.wav for a built session (non-blocking background playback).
+
+    Args:
+        session_name: Session name, or "" to use the most recently built session.
+    """
+    if not session_name:
+        session_name = context_variables.get("last_build", "")
+    if not session_name:
+        return "No session name provided and no recent build found in context."
+    wav = _PROJECT_DIR / "output" / session_name / "mix_output.wav"
+    if not wav.exists():
+        return f"mix_output.wav not found for session '{session_name}'."
+    err = _play_audio(str(wav), block=False)
+    if err:
+        return err
+    return f"▶ Playing '{session_name}' in the background."
+
+
+def preview_transition(pos_a: int, pos_b: int, session_name: str,
+                       context_variables: dict) -> str:
+    """Extract and play the ±15 s crossfade zone between two adjacent tracks.
+
+    Requires a rendered mix (build_session must have been called first).
+
+    Args:
+        pos_a: 1-indexed position of the outgoing track.
+        pos_b: 1-indexed position of the incoming track.
+        session_name: Session name, or "" to use the most recently built session.
+    """
+    if not session_name:
+        session_name = context_variables.get("last_build", "")
+    if not session_name:
+        return "No session name provided and no recent build found in context."
+
+    out_dir = _PROJECT_DIR / "output" / session_name
+    wav_path = out_dir / "mix_output.wav"
+    tj_path  = out_dir / "transitions.json"
+
+    if not wav_path.exists():
+        return f"mix_output.wav not found for session '{session_name}'."
+    if not tj_path.exists():
+        return f"transitions.json not found for session '{session_name}'."
+
+    with open(tj_path) as f:
+        transitions = json.load(f)
+
+    # transitions[i] is the entry for the track at 1-indexed playlist position i+1
+    idx = pos_b - 1
+    if idx < 0 or idx >= len(transitions):
+        return (
+            f"pos_b={pos_b} is out of range "
+            f"(session has {len(transitions)} tracks)."
+        )
+
+    entry  = transitions[idx]
+    t_sec  = entry["start_sec"]
+    name   = entry["name"]
+
+    WINDOW   = 15  # seconds either side of the crossfade point
+    start_ms = max(0, int((t_sec - WINDOW) * 1000))
+    end_ms   = int((t_sec + WINDOW) * 1000)
+
+    audio  = AudioSegment.from_file(str(wav_path))
+    end_ms = min(end_ms, len(audio))
+    clip   = audio[start_ms:end_ms]
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    try:
+        clip.export(tmp.name, format="wav")
+        tmp.close()
+        err = _play_audio(tmp.name, block=True)
+    finally:
+        os.unlink(tmp.name)
+
+    if err:
+        return err
+    clip_dur = (end_ms - start_ms) / 1000
+    return (
+        f"Previewed transition → '{name}' "
+        f"(crossfade at {t_sec:.1f}s, {clip_dur:.0f}s clip played)."
+    )
+
+
+def play_track(track_id: str, start_sec: int, duration_sec: int,
+               context_variables: dict) -> str:
+    """Audition an individual track from the catalog.
+
+    Args:
+        track_id: Catalog track ID (use get_catalog to find IDs).
+        start_sec: Start offset in seconds (0 = beginning of track).
+        duration_sec: How many seconds to play (0 = play full track).
+    """
+    if not _CATALOG_PATH.exists():
+        return "Error: tracks.json not found."
+    with open(_CATALOG_PATH) as f:
+        data = json.load(f)
+    index = {t["id"]: t for t in data["tracks"]}
+    track = index.get(track_id)
+    if not track:
+        return f"Track ID '{track_id}' not found in catalog."
+
+    rel      = track["file"]
+    abs_path = (_PROJECT_DIR / rel) if not os.path.isabs(rel) else Path(rel)
+    if not abs_path.exists():
+        return f"Audio file not found on disk: {abs_path}"
+
+    if start_sec > 0 or duration_sec > 0:
+        audio    = AudioSegment.from_file(str(abs_path))
+        start_ms = int(start_sec * 1000)
+        end_ms   = (start_ms + int(duration_sec * 1000)) if duration_sec > 0 else len(audio)
+        end_ms   = min(end_ms, len(audio))
+        clip     = audio[start_ms:end_ms]
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        try:
+            clip.export(tmp.name, format="wav")
+            tmp.close()
+            err = _play_audio(tmp.name, block=True)
+        finally:
+            os.unlink(tmp.name)
+    else:
+        err = _play_audio(str(abs_path), block=True)
+
+    if err:
+        return err
+    label = f"{start_sec}s–{start_sec + duration_sec}s" if duration_sec > 0 else "full track"
+    return f"▶ Played '{track['display_name']}' ({label})."
+
+
+# ---------------------------------------------------------------------------
+# v1.5 — Live DJ session tools
+# ---------------------------------------------------------------------------
+
+def start_live_session(session_name: str, context_variables: dict) -> str:
+    """Start a live DJ session with the current playlist (or load a saved session).
+
+    Launches the LiveDJ engine and enters the event loop — blocks until the
+    session ends or the user quits.
+
+    Args:
+        session_name: Session name to load playlist from disk, or "" to use
+                      the playlist currently in context.
+    """
+    # Deferred import to break circular dependency (run.py → tools → live_dj → run)
+    from agent.live_dj import run_live_session  # noqa: PLC0415
+
+    playlist = context_variables.get("playlist", [])
+
+    if not playlist and session_name:
+        session_file = _PROJECT_DIR / "output" / session_name / "session.json"
+        if not session_file.exists():
+            return f"No playlist in context and session '{session_name}' not found on disk."
+        with open(session_file) as f:
+            data = json.load(f)
+        # Enrich playlist entries with catalog metadata (bpm, camelot_key, id)
+        catalog: dict[str, dict] = {}
+        if _CATALOG_PATH.exists():
+            with open(_CATALOG_PATH) as f:
+                cat_data = json.load(f)
+            catalog = {t["file"]: t for t in cat_data.get("tracks", [])}
+        playlist = []
+        for entry in data.get("playlist", []):
+            merged = {**catalog.get(entry.get("file", ""), {}), **entry}
+            playlist.append(merged)
+
+    if not playlist:
+        return "No playlist available. Build a set first or provide a session_name."
+
+    run_live_session(playlist, context_variables)
+    return "Live session ended."
+
+
+def import_rekordbox(xml_path: str, context_variables: dict) -> str:
+    """Import hot cues and beatgrid from a Rekordbox XML export into tracks.json.
+
+    Matches tracks by filename. Writes hot_cues and beatgrid fields into
+    matching catalog entries and saves tracks.json.
+
+    Args:
+        xml_path: Absolute path to the rekordbox.xml export file.
+    """
+    try:
+        import pyrekordbox.xml as rb_xml  # noqa: PLC0415
+    except ImportError:
+        return "pyrekordbox is not installed. Run: uv add pyrekordbox"
+
+    xml_file = Path(xml_path)
+    if not xml_file.exists():
+        return f"File not found: {xml_path}"
+    if not _CATALOG_PATH.exists():
+        return "tracks.json not found — run --build-catalog first."
+
+    with open(_CATALOG_PATH) as f:
+        catalog_data = json.load(f)
+
+    tracks = catalog_data.get("tracks", [])
+    # Index catalog by filename (last component) for fuzzy matching
+    catalog_by_name: dict[str, dict] = {
+        Path(t["file"]).name.lower(): t for t in tracks
+    }
+
+    try:
+        rb = rb_xml.RekordboxXml(xml_path)
+        rb_tracks = list(rb.get_all_tracks())
+    except Exception as e:
+        return f"Failed to parse Rekordbox XML: {e}"
+
+    updated = 0
+    unmatched = []
+    for rb_track in rb_tracks:
+        filename = Path(rb_track.Location).name.lower()
+        cat_entry = catalog_by_name.get(filename)
+        if not cat_entry:
+            unmatched.append(filename)
+            continue
+
+        # Hot cues
+        hot_cues = []
+        for cue in getattr(rb_track, "marks", []):
+            cue_type = "in" if getattr(cue, "Type", 0) == 0 else "out"
+            hot_cues.append({
+                "label": getattr(cue, "Name", ""),
+                "position_sec": round(getattr(cue, "Start", 0) / 1000, 3),
+                "type": cue_type,
+            })
+
+        # Beatgrid
+        beatgrid = None
+        bpm_entries = getattr(rb_track, "tempo_entries", [])
+        if bpm_entries:
+            first = bpm_entries[0]
+            beatgrid = {
+                "bpm": round(float(getattr(first, "Bpm", cat_entry.get("bpm", 0))), 3),
+                "first_beat_sec": round(getattr(first, "Inizio", 0) / 1000, 3),
+            }
+
+        if hot_cues:
+            cat_entry["hot_cues"] = hot_cues
+        if beatgrid:
+            cat_entry["beatgrid"] = beatgrid
+        updated += 1
+
+    with open(_CATALOG_PATH, "w") as f:
+        json.dump(catalog_data, f, indent=2, ensure_ascii=False)
+
+    summary = f"Rekordbox import: {updated} tracks updated."
+    if unmatched:
+        summary += f" {len(unmatched)} unmatched: {', '.join(unmatched[:5])}"
+        if len(unmatched) > 5:
+            summary += f" (+{len(unmatched) - 5} more)"
+    return summary
+
+
 TOOLS = [
     list_genres,
     get_catalog,
@@ -1170,4 +1487,10 @@ TOOLS = [
     validate_audio,
     read_memory,
     write_session_record,
+    play_mix,
+    preview_transition,
+    play_track,
+    start_live_session,
+    import_rekordbox,
+    generate_beatgrid,
 ]

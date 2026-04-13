@@ -50,6 +50,12 @@ from agent.tools import (
     validate_audio,
     read_memory,
     write_session_record,
+    play_mix,
+    preview_transition,
+    play_track,
+    start_live_session,
+    import_rekordbox,
+    generate_beatgrid,
 )
 
 load_dotenv()
@@ -203,12 +209,20 @@ Available actions:
 - suggest_bridge_track: find bridge candidates between two BPM-mismatched positions
 - insert_bridge_track: insert a bridge track after a given position
 - build_session: save and render the final mix (only on explicit user confirmation)
+- play_mix(session_name=""): stream the full rendered mix in the background
+- preview_transition(pos_a, pos_b, session_name=""): play the ±15 s crossfade zone between two tracks
+- play_track(track_id, start_sec=0, duration_sec=0): audition a catalog track (full or slice)
 
 Always call show_playlist after any swap or move.
 Be concise. Think like a DJ.
 
 If a transition has BPM stretch ratio >1.5×, call suggest_bridge_track(from_pos, to_pos) \
 to find candidates, then insert_bridge_track(after_position, track_id) to smooth the gap.
+Playback tools (play_mix, preview_transition, play_track) require a rendered mix — suggest \
+them only after build_session has completed successfully.
+- start_live_session(session_name=""): launch live DJ mode — proactive real-time mixing.
+  Offer this when the user says "play live", "go live", "live mix", or "spin it live".
+  Live mode and build_session are independent — either can be used after the set is approved.
 """
 
 _CATALOG_MANAGER_SYSTEM = """\
@@ -609,8 +623,13 @@ def _run_checkpoint(context_variables: dict, critic_context: str | None = None) 
 # Orchestrator — 7 phases
 # ---------------------------------------------------------------------------
 
-_EDITOR_TOOLS = [show_playlist, analyze_transition, swap_track, move_track, suggest_bridge_track, insert_bridge_track, build_session]
-_CATALOG_TOOLS = [catalog_status, rebuild_catalog, fix_incomplete, redetect_bpm]
+_EDITOR_TOOLS = [
+    show_playlist, analyze_transition, swap_track, move_track,
+    suggest_bridge_track, insert_bridge_track, build_session,
+    play_mix, preview_transition, play_track,
+    start_live_session,
+]
+_CATALOG_TOOLS = [catalog_status, rebuild_catalog, fix_incomplete, redetect_bpm, import_rekordbox, generate_beatgrid]
 
 # Keywords that signal the user wants catalog management
 _CATALOG_KEYWORDS = {
