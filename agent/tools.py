@@ -811,6 +811,27 @@ def redetect_bpm(genre: str, context_variables: dict) -> str:
     return f"Re-detection failed (exit code {result.returncode}). Check output above."
 
 
+def generate_beatgrid(genre: str, context_variables: dict) -> str:
+    """Generate beatgrid (first beat position + confirmed BPM) for catalog tracks missing it.
+
+    Safe to run repeatedly — skips entries that already have a beatgrid.
+    Beatgrid data is used by the LiveDJ engine for beat-accurate crossfades.
+
+    Args:
+        genre: Genre folder name to process, or 'all' to process every genre.
+    """
+    cmd = [sys.executable, str(_MAIN_PY), "--generate-beatgrid"]
+    if genre.lower() != "all":
+        cmd += ["--genre", genre]
+    print(f"\n[Catalog Manager] Running: {' '.join(cmd)}\n")
+    result = subprocess.run(cmd, cwd=str(_PROJECT_DIR), capture_output=False)
+
+    scope = "all genres" if genre.lower() == "all" else f"'{genre}'"
+    if result.returncode == 0:
+        return f"Beatgrid generated for {scope}. LiveDJ will now use beat-accurate crossfade points."
+    return f"Beatgrid generation failed (exit code {result.returncode}). Check output above."
+
+
 def rebuild_catalog(context_variables: dict) -> str:
     """Scan all genre folders and add any new WAV files to tracks.json.
 
@@ -1471,4 +1492,5 @@ TOOLS = [
     play_track,
     start_live_session,
     import_rekordbox,
+    generate_beatgrid,
 ]

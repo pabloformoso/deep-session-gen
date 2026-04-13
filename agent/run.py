@@ -55,6 +55,7 @@ from agent.tools import (
     play_track,
     start_live_session,
     import_rekordbox,
+    generate_beatgrid,
 )
 
 load_dotenv()
@@ -628,7 +629,7 @@ _EDITOR_TOOLS = [
     play_mix, preview_transition, play_track,
     start_live_session,
 ]
-_CATALOG_TOOLS = [catalog_status, rebuild_catalog, fix_incomplete, redetect_bpm, import_rekordbox]
+_CATALOG_TOOLS = [catalog_status, rebuild_catalog, fix_incomplete, redetect_bpm, import_rekordbox, generate_beatgrid]
 
 # Keywords that signal the user wants catalog management
 _CATALOG_KEYWORDS = {
