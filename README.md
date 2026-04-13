@@ -409,49 +409,57 @@ sequenceDiagram
 
 ### How the threads fit together
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Main thread — LiveDJ event loop                            │
-│  ┌──────────┐  100ms tick                                   │
-│  │drain EQ  │──────────────────────────────────────────┐   │
-│  │drain stdin│                                          │   │
-│  └──────────┘                                           ▼   │
-│                                              format turn     │
-│                                              call LLM (≤5t) │
-│                                              exec tools      │
-└─────────────────────────────────────────────────────────────┘
-          ▲ events                        │ tool calls
-          │                               ▼
-┌─────────────────┐             ┌──────────────────────┐
-│  LiveEngine     │             │  LiveEngine public   │
-│  Watchdog thread│             │  API (thread-safe)   │
-│  50ms tick:     │             │  crossfade_now()     │
-│  · APPROACHING  │             │  extend_track()      │
-│  · TRIGGERED    │             │  skip_track()        │
-│  · FINISHED     │             │  queue_swap()        │
-│  · ENDED        │             │  set_crossfade_point │
-└─────────────────┘             └──────────────────────┘
-          │
-          │ _cf_just_finished flag
-          ▼
-┌──────────────────────────────────────────────┐
-│  sounddevice OutputStream callback           │
-│  (low-latency audio thread, 2048-sample blk) │
-│  state=playing   → copy samples from _audio  │
-│  state=crossfading → linear blend:           │
-│    out_chunk * (1−t) + in_chunk * t          │
-│  blend complete → swap buffers, set flag     │
-└──────────────────────────────────────────────┘
-          ▲
-          │ _next_audio (pre-stretched WAV)
-┌───────────────────────────────┐
-│  Pre-stretch daemon thread    │
-│  · loads next track WAV       │
-│  · pyrubberband time-stretch  │
-│    to match current BPM       │
-│  · respects _STRETCH_MAX 1.5× │
-│  · signals _prestretch_ready  │
-└───────────────────────────────┘
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {
+  'background': '#0d0d1a',
+  'primaryColor': '#1a1a2e',
+  'primaryTextColor': '#e0e0ff',
+  'primaryBorderColor': '#4a4a8a',
+  'lineColor': '#6060aa',
+  'secondaryColor': '#12122a',
+  'tertiaryColor': '#0d0d1a',
+  'edgeLabelBackground': '#1a1a2e',
+  'clusterBkg': '#12122a',
+  'clusterBorder': '#3a3a6a',
+  'titleColor': '#c0c0ff',
+  'nodeTextColor': '#e0e0ff',
+  'fontFamily': 'monospace'
+}}}%%
+
+flowchart TB
+    subgraph MAIN["🧵 Main thread — LiveDJ event loop (100ms tick)"]
+        direction LR
+        DRAIN["drain Event Queue\ndrain stdin (1 line)"]:::pipeline
+        FORMAT["format turn\ncall LLM ≤5 turns\nexec tool calls"]:::agent
+        DRAIN --> FORMAT
+    end
+
+    subgraph ENGINE["⚙️ LiveEngine"]
+        direction TB
+        WATCHDOG["🔍 Watchdog thread\n50ms tick\n─────────────────\nAPPROACHING_CF\nCROSSFADE_TRIGGERED\nCROSSFADE_FINISHED\nTRACK_ENDED · SESSION_ENDED"]:::agent
+        CALLBACK["🔊 sounddevice callback\nlow-latency audio thread\n2048-sample blocks\n─────────────────\nstate=playing → copy samples\nstate=crossfading →\n  out*(1−t) + in*t\nblend done → swap buffers"]:::pipeline
+        API["🔧 Public API\nthread-safe (_lock)\n─────────────────\ncrossfade_now()\nextend_track(N)\nskip_track()\nqueue_swap(pos, id)\nset_crossfade_point(sec)"]:::memory
+        WATCHDOG -->|"_cf_just_finished flag"| CALLBACK
+    end
+
+    PRESTRETCH["🎛️ Pre-stretch daemon\n─────────────────\nload next WAV\npyrubberband time-stretch\nto match current BPM\n_STRETCH_MAX 1.5×\nsignal _prestretch_ready"]:::memory
+
+    USER(["👤 User\nnext · stay · skip\nmore energetic\nwind down · quit"]):::user
+    EQ[("📨 Event Queue\nthreading.Queue")]:::memory
+
+    WATCHDOG -->|"emit events"| EQ
+    EQ -->|"drained each tick"| DRAIN
+    USER -->|"stdin"| DRAIN
+    FORMAT -->|"tool calls"| API
+    API -->|"state mutations"| CALLBACK
+    CALLBACK -->|"_next_audio\npre-stretched WAV"| WATCHDOG
+    ENGINE -->|"triggers prestretch\non each track start"| PRESTRETCH
+    PRESTRETCH -->|"_next_audio ready"| CALLBACK
+
+    classDef agent    fill:#1a1a3a,stroke:#5858b0,color:#c8c8ff
+    classDef pipeline fill:#0a1f1a,stroke:#20a060,color:#60ffb0
+    classDef memory   fill:#1a0a2a,stroke:#8040c0,color:#c080ff
+    classDef user     fill:#0a0a1a,stroke:#4040a0,color:#8080d0
 ```
 
 **Key design decisions:**
