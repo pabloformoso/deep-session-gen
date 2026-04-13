@@ -98,8 +98,23 @@ flowchart TD
 | Catalog Manager | **Hermes** | Keeper of records — syncs WAV files to catalog, detects BPM & key |
 | Planner | **Muse** | Inspires the set — energy arc, harmonic ordering, track selection |
 | Critic | **Momus** | God of fault-finding — cold independent review, structured verdict |
+| Editor | *(REPL)* | Interactive editor — swap, move, insert bridge tracks, trigger build |
 | Validator | **Themis** | Goddess of order — audio quality analysis after every build |
 | Orchestrator | **Apollo** | Conductor — sequences all agents, manages state, collects memory |
+
+### Pipeline phases
+
+```
+1. Janus (Genre Guard)   → confirms genre / duration / mood
+2. Muse  (Planner)       → proposes playlist + energy arc
+3. Checkpoint 1          → user reviews; manual adjustments allowed
+4. Momus (Critic)        → cold review: flags key clashes, BPM stretch, arc gaps
+5. Checkpoint 2          → user sees critique; decides what to apply
+6. Editor REPL           → swap · move · insert bridge tracks → build
+7. Themis (Validator)    → audio quality report after build
+```
+
+> Checkpoints are hard gates — agents never auto-apply fixes. You stay in control.
 
 ---
 
@@ -108,9 +123,15 @@ flowchart TD
 - **Conversational planning** — describe the vibe, iterate with the agents, build when ready
 - **Harmonic mixing** — Camelot wheel-based track ordering for smooth key transitions
 - **BPM matching** — gradual tempo ramps between tracks via pyrubberband
+- **BPM stretch safety** — transitions with pyrubberband ratio >1.5× are flagged; Critic mandates a bridge track fix
+- **Bridge track insertion** — `suggest_bridge_track` finds candidates between mismatched positions; `insert_bridge_track` splices one in
+- **EQ matching at crossfade** — shelving EQ applied to outgoing/incoming segments based on key distance, reducing frequency masking
+- **Energy arc planning** — Planner evaluates set shape (warmup → build → peak → wind-down) and iterates until no gaps or plateaus
 - **Audio validation** — peak clipping, spectral flatness (bleach detection), silence gap and RMS anomaly checks
+- **Per-transition ratings** — rate each session 1–5 after build; Critic memory flags recurring problem transitions
 - **Session memory** — agents learn from past sessions: which tracks get swapped, what energy arcs rate highly
 - **Catalog management** — scan new WAVs, detect missing BPM/key fields, keep tracks.json in sync
+- **Multi-provider** — Claude (Anthropic), GPT-4o (OpenAI), or any local model via Ollama; auto-detected from `.env`
 - **1080p video output** — spectral waveform visualizer, beat-reactive particles, DALL-E 3 artwork, retro pixel titles
 - **YouTube Short** — auto-generated 20s teaser alongside the full mix
 
@@ -135,8 +156,11 @@ cp .env.example .env
 
 | Key | Required | Purpose |
 |-----|----------|---------|
-| `ANTHROPIC_API_KEY` | One of these | Claude (recommended) |
+| `ANTHROPIC_API_KEY` | One of these | Claude (recommended, default: `claude-opus-4-6`) |
 | `OPENAI_API_KEY` | One of these | GPT-4o — also used for DALL-E 3 artwork |
+| `AGENT_PROVIDER=ollama` | One of these | Use a local Ollama model (default: `gemma4:4b`) |
+| `OLLAMA_BASE_URL` | Optional | Override Ollama endpoint (default: `http://localhost:11434/v1`) |
+| `AGENT_MODEL` | Optional | Override the model for any provider (e.g. `AGENT_MODEL=gpt-4o-mini`) |
 
 ---
 
@@ -177,7 +201,14 @@ uv run python agent/run.py
 ### Conversational agent (recommended)
 
 ```bash
+# Default (Claude / GPT-4o, whichever key is in .env)
 uv run python agent/run.py
+
+# Local model via Ollama (no API key required)
+AGENT_PROVIDER=ollama uv run python agent/run.py
+
+# Override model for any provider
+AGENT_MODEL=claude-haiku-4-5-20251001 uv run python agent/run.py
 ```
 
 Example session:
@@ -190,7 +221,9 @@ You: 60min techno set, dark industrial build to a hard peak
 [confirms genre: techno, 60min, mood: dark industrial build]
 
 ── Muse (Planner) ──
-[proposes 12-track playlist with energy arc rationale]
+[surveys catalog, proposes 12-track playlist]
+[evaluates energy arc: plateau detected at pos 6-8, swaps pos 7 to fix]
+Energy arc: 3-track warmup → hard build → peak at pos 9 → wind-down
 
 ── Checkpoint 1 ──
 You: move track 4 to position 7
@@ -200,6 +233,7 @@ You: proceed
 ── Momus (Critic) ──
 PROBLEMS:
 - [pos 2→3] key clash 5A → 11A — fix: swap pos 3 for zero-day
+- [pos 8→9] ⚠ Stretch 1.8× — bridge track required
 VERDICT: NEEDS_FIXES
 
 ── Checkpoint 2 ──
@@ -207,6 +241,9 @@ You: swap pos 3 like the critic said
 You: ok
 
 ── Editor ──
+You: fix the stretch at 8→9
+[suggest_bridge_track(8, 9) → 3 candidates at 142 BPM]
+[insert_bridge_track(after_position=8, track_id="techno--acid-rain")]
 You: build midnight-industrial
 
 ── Themis (Validator) ──
