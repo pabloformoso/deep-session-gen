@@ -31,6 +31,18 @@ _MAIN_PY = _PROJECT_DIR / "main.py"
 _MEMORY_PATH = _AGENT_DIR / "memory.json"
 
 # ---------------------------------------------------------------------------
+# Slug helper (mirrors main.py _slugify)
+# ---------------------------------------------------------------------------
+def _slugify(text: str) -> str:
+    slug = text.lower()
+    for ch in [" ", "/", "\\", "(", ")", ".", ","]:
+        slug = slug.replace(ch, "-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug.strip("-")
+
+
+# ---------------------------------------------------------------------------
 # Camelot helpers (duplicated from main.py to keep tools self-contained)
 # ---------------------------------------------------------------------------
 def _camelot_neighbors(key: str) -> set[str]:
@@ -584,6 +596,7 @@ def build_session(session_name: str, context_variables: dict) -> str:
     Args:
         session_name: Name for the output folder (e.g. 'midnight-techno')
     """
+    session_name = _slugify(session_name)
     playlist = context_variables.get("playlist")
     genre = context_variables.get("genre")
 
