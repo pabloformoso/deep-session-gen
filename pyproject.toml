@@ -26,3 +26,10 @@ dev = [
     "pytest>=9.0.3",
     "weasyprint>=68.1",
 ]
+web = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "email-validator>=2.0.0",
+]
