@@ -19,7 +19,7 @@ function phaseColor(phase: string) {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [user] = useState(() => getUser());
+  const [user, setUser] = useState<ReturnType<typeof getUser>>(null);
   const [sessions, setSessions] = useState<SessionState[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -35,9 +35,11 @@ export default function DashboardPage() {
   }, [router]);
 
   useEffect(() => {
-    if (!user) { router.push("/login"); return; }
+    const u = getUser();
+    if (!u) { router.push("/login"); return; }
+    setUser(u);
     load();
-  }, [user, load, router]);
+  }, [load, router]);
 
   async function handleCreate() {
     const s = await createSession();
