@@ -6,7 +6,8 @@
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run"
   },
   "dependencies": {
     "next": "^16.2.4",
@@ -25,6 +26,8 @@
     "postcss": "^8.4.49",
     "autoprefixer": "^10.4.20",
     "eslint": "^10.2.1",
-    "eslint-config-next": "^16.2.4"
+    "eslint-config-next": "^16.2.4",
+    "vitest": "^4.1.4",
+    "happy-dom": "^19.0.2"
   }
 }

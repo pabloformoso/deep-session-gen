@@ -34,7 +34,10 @@ def create_user(username: str, email: str, hashed_password: str) -> int:
             (username, email, hashed_password),
         )
         c.commit()
-        return cur.lastrowid  # type: ignore[return-value]
+        user_id = cur.lastrowid
+        if user_id is None:
+            raise RuntimeError("INSERT returned no lastrowid")
+        return user_id
 
 
 def get_user_by_username(username: str) -> dict | None:

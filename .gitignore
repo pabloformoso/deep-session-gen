@@ -38,3 +38,9 @@ tracks/.DS_Store
 # Agent session memory (personal history)
 agent/memory.json
 apolloagents_paper.pdf
+
+# Web UI (v2.0)
+web/backend/apollo.db
+web/frontend/node_modules/
+web/frontend/.next/
+web/frontend/next-env.d.ts
