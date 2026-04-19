@@ -21,11 +21,12 @@ import type { Track } from "@/lib/types";
 interface TrackRowProps {
   track: Track;
   position: number;
+  rowId: string;
 }
 
-function TrackRow({ track, position }: TrackRowProps) {
+function TrackRow({ track, position, rowId }: TrackRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: track.id || `track-${position}`,
+    id: rowId,
   });
 
   const style = {
@@ -84,11 +85,16 @@ export default function PlaylistPanel({ tracks, onReorder }: PlaylistPanelProps)
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  // Position-aware row id — tracks can repeat (base + variant, or same
+  // track at two positions), so the id alone is not unique across rows.
+  const rowIds = tracks.map((t, i) => `${t.id || "track"}-pos${i}`);
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id || !onReorder) return;
-    const oldIndex = tracks.findIndex(t => (t.id || `track-${tracks.indexOf(t)}`) === active.id);
-    const newIndex = tracks.findIndex(t => (t.id || `track-${tracks.indexOf(t)}`) === over.id);
+    const oldIndex = rowIds.indexOf(String(active.id));
+    const newIndex = rowIds.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
     onReorder(arrayMove(tracks, oldIndex, newIndex));
   }
 
@@ -112,12 +118,9 @@ export default function PlaylistPanel({ tracks, onReorder }: PlaylistPanelProps)
 
       <div className="flex-1 overflow-y-auto">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext
-            items={tracks.map((t, i) => t.id || `track-${i}`)}
-            strategy={verticalListSortingStrategy}
-          >
+          <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
             {tracks.map((track, i) => (
-              <TrackRow key={track.id || i} track={track} position={i + 1} />
+              <TrackRow key={rowIds[i]} rowId={rowIds[i]} track={track} position={i + 1} />
             ))}
           </SortableContext>
         </DndContext>
