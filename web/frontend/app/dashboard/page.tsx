@@ -19,7 +19,7 @@ function phaseColor(phase: string) {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const user = getUser();
+  const [user] = useState(() => getUser());
   const [sessions, setSessions] = useState<SessionState[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -27,7 +27,6 @@ export default function DashboardPage() {
     try {
       setSessions(await listSessions());
     } catch {
-      // token expired
       clearAuth();
       router.push("/login");
     } finally {

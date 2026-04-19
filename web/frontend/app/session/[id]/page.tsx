@@ -190,7 +190,6 @@ export default function SessionPage() {
   const router = useRouter();
   const sessionId = params.id as string;
 
-  const user = getUser();
   const [session, setSession] = useState<SessionState | null>(null);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [streaming, setStreaming] = useState(false);
@@ -252,9 +251,9 @@ export default function SessionPage() {
   const { send } = useSessionWS(sessionId, handleEvent);
 
   useEffect(() => {
-    if (!user) { router.push("/login"); return; }
+    if (!getUser()) { router.push("/login"); return; }
     getSession(sessionId).then(setSession).catch(() => router.push("/dashboard"));
-  }, [sessionId, user, router]);
+  }, [sessionId, router]);
 
   const sendMsg = useCallback((type: string, content?: string) => {
     flushText();
