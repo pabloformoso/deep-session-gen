@@ -43,4 +43,12 @@ apolloagents_paper.pdf
 web/backend/apollo.db
 web/frontend/node_modules/
 web/frontend/.next/
+web/frontend/.next-e2e/
 web/frontend/next-env.d.ts
+
+# Playwright E2E
+web/frontend/test-results/
+web/frontend/playwright-report/
+web/frontend/playwright/.cache/
+.playwright-mcp/
+.tmp/

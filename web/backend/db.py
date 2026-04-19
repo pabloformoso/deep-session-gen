@@ -1,10 +1,11 @@
 """SQLite user store."""
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "apollo.db"
+DB_PATH = Path(os.getenv("APOLLO_DB_PATH") or (Path(__file__).parent / "apollo.db"))
 
 
 def _conn() -> sqlite3.Connection:

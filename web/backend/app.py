@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
@@ -38,9 +39,14 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="ApolloAgents API", version="2.0.0", lifespan=lifespan)
 
+_DEFAULT_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+_ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("APOLLO_CORS_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -181,74 +187,90 @@ async def session_ws(
             msg_type = msg.get("type")
             content = msg.get("content", "")
 
-            # ── Genre Guard ──────────────────────────────────────────────
-            if msg_type == "genre_intent":
-                s.phase = "genre"
-                history = s.messages.setdefault("genre", [])
-                confirmed = await pipeline.phase_genre_guard(content, history, s.context_variables, emit)
-
-                if confirmed:
-                    s.context_variables.update(confirmed)
-                    await emit({"type": "phase_complete", "phase": "genre", "data": confirmed})
-
-                    # ── Planner (auto-starts after genre confirmation) ──
-                    s.phase = "planning"
-                    await emit({"type": "phase_start", "phase": "planning"})
-                    memory = await pipeline.load_memory(confirmed["genre"], s.context_variables)
-                    await pipeline.phase_plan(s.context_variables, emit, memory)
-
-                    s.phase = "checkpoint1"
-                    await emit({"type": "phase_complete", "phase": "planning", "data": s.to_dict()})
-                else:
-                    await emit({"type": "error", "message": "Could not confirm genre — please try again."})
-                    s.phase = "init"
-
-            # ── Checkpoint 1 — user approves playlist → run Critic ──────
-            elif msg_type == "checkpoint_approve" and s.phase == "checkpoint1":
-                s.phase = "critique"
-                await emit({"type": "phase_start", "phase": "critique"})
-                memory = await pipeline.load_memory(s.context_variables.get("genre", ""), s.context_variables)
-                verdict, problems, structured = await pipeline.phase_critique(s.context_variables, emit, memory)
-
-                s.critic_verdict = verdict
-                s.critic_problems = problems
-                s.structured_problems = structured
-                s.phase = "checkpoint2"
-                await emit({"type": "phase_complete", "phase": "critique", "data": s.to_dict()})
-
-            # ── Checkpoint 2 — user proceeds to Editor ───────────────────
-            elif msg_type == "checkpoint2_approve" and s.phase == "checkpoint2":
-                s.phase = "editing"
-                s.messages.setdefault("editor", [])
-                await emit({"type": "phase_start", "phase": "editing"})
-                await emit({"type": "phase_complete", "phase": "checkpoint2", "data": s.to_dict()})
-
-            # ── Editor command ────────────────────────────────────────────
-            elif msg_type == "editor_command" and s.phase == "editing":
-                history = s.messages.setdefault("editor", [])
-                await pipeline.phase_editor(content, history, s.context_variables, emit)
-
-                last_build = s.context_variables.get("last_build")
-                if last_build:
-                    s.session_name = last_build
-                    s.phase = "validating"
-                    await emit({"type": "phase_start", "phase": "validating"})
-                    v_status, v_issues = await pipeline.phase_validate(last_build, s.context_variables, emit)
-                    s.validator_status = v_status
-                    s.validator_issues = v_issues
-                    s.phase = "rating"
-                    await emit({"type": "phase_complete", "phase": "validating", "data": s.to_dict()})
-                else:
-                    await emit({"type": "phase_complete", "phase": "editor_turn", "data": s.to_dict()})
-
-            # ── State sync ────────────────────────────────────────────────
-            elif msg_type == "get_state":
-                await emit({"type": "state", "data": s.to_dict()})
+            try:
+                await _handle_ws_message(s, msg_type, content, emit)
+            except WebSocketDisconnect:
+                raise
+            except Exception as exc:  # noqa: BLE001 — surface any phase failure as a UI banner
+                await emit({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
 
     except WebSocketDisconnect:
         pass
     finally:
         ws_manager.disconnect(session_id)
+
+
+# ---------------------------------------------------------------------------
+# WS message dispatcher (separated so the outer loop can catch phase failures
+# and emit a graceful `error` event instead of dropping the connection)
+# ---------------------------------------------------------------------------
+
+async def _handle_ws_message(s, msg_type: str | None, content: str, emit) -> None:
+    # ── Genre Guard ──────────────────────────────────────────────
+    if msg_type == "genre_intent":
+        s.phase = "genre"
+        history = s.messages.setdefault("genre", [])
+        confirmed = await pipeline.phase_genre_guard(content, history, s.context_variables, emit)
+
+        if confirmed:
+            s.context_variables.update(confirmed)
+            # Always emit s.to_dict() for phase_complete so the frontend can
+            # safely setSession(event.data) without losing fields like playlist.
+            await emit({"type": "phase_complete", "phase": "genre", "data": s.to_dict()})
+
+            # ── Planner (auto-starts after genre confirmation) ──
+            s.phase = "planning"
+            await emit({"type": "phase_start", "phase": "planning"})
+            memory = await pipeline.load_memory(confirmed["genre"], s.context_variables)
+            await pipeline.phase_plan(s.context_variables, emit, memory)
+
+            s.phase = "checkpoint1"
+            await emit({"type": "phase_complete", "phase": "planning", "data": s.to_dict()})
+        else:
+            await emit({"type": "error", "message": "Could not confirm genre — please try again."})
+            s.phase = "init"
+
+    # ── Checkpoint 1 — user approves playlist → run Critic ──────
+    elif msg_type == "checkpoint_approve" and s.phase == "checkpoint1":
+        s.phase = "critique"
+        await emit({"type": "phase_start", "phase": "critique"})
+        memory = await pipeline.load_memory(s.context_variables.get("genre", ""), s.context_variables)
+        verdict, problems, structured = await pipeline.phase_critique(s.context_variables, emit, memory)
+
+        s.critic_verdict = verdict
+        s.critic_problems = problems
+        s.structured_problems = structured
+        s.phase = "checkpoint2"
+        await emit({"type": "phase_complete", "phase": "critique", "data": s.to_dict()})
+
+    # ── Checkpoint 2 — user proceeds to Editor ───────────────────
+    elif msg_type == "checkpoint2_approve" and s.phase == "checkpoint2":
+        s.phase = "editing"
+        s.messages.setdefault("editor", [])
+        await emit({"type": "phase_start", "phase": "editing"})
+        await emit({"type": "phase_complete", "phase": "checkpoint2", "data": s.to_dict()})
+
+    # ── Editor command ────────────────────────────────────────────
+    elif msg_type == "editor_command" and s.phase == "editing":
+        history = s.messages.setdefault("editor", [])
+        await pipeline.phase_editor(content, history, s.context_variables, emit)
+
+        last_build = s.context_variables.get("last_build")
+        if last_build:
+            s.session_name = last_build
+            s.phase = "validating"
+            await emit({"type": "phase_start", "phase": "validating"})
+            v_status, v_issues = await pipeline.phase_validate(last_build, s.context_variables, emit)
+            s.validator_status = v_status
+            s.validator_issues = v_issues
+            s.phase = "rating"
+            await emit({"type": "phase_complete", "phase": "validating", "data": s.to_dict()})
+        else:
+            await emit({"type": "phase_complete", "phase": "editor_turn", "data": s.to_dict()})
+
+    # ── State sync ────────────────────────────────────────────────
+    elif msg_type == "get_state":
+        await emit({"type": "state", "data": s.to_dict()})
 
 
 # ---------------------------------------------------------------------------

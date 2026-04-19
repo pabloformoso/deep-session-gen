@@ -3,7 +3,18 @@ import { useEffect, useRef, useCallback } from "react";
 import { getToken } from "./auth";
 import type { ServerEvent } from "./types";
 
-const WS_BASE = "ws://localhost:8800";
+function deriveWsBase(): string {
+  const explicit = process.env.NEXT_PUBLIC_WS_BASE;
+  if (explicit) return explicit;
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE;
+  if (apiBase) return apiBase.replace(/^http/, "ws");
+  // Fallback matches the next.config.ts /api rewrite target: in dev the
+  // backend is on 8800 and Next doesn't proxy WebSockets. For prod set
+  // NEXT_PUBLIC_WS_BASE explicitly.
+  return "ws://localhost:8800";
+}
+
+const WS_BASE = deriveWsBase();
 
 export function useSessionWS(
   sessionId: string | null,

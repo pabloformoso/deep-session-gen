@@ -315,3 +315,14 @@ async def phase_validate(session_name: str, ctx: dict, emit: Callable) -> tuple[
 async def load_memory(genre: str, ctx: dict) -> str:
     """Load past session memory for the given genre (runs in thread — does I/O)."""
     return await asyncio.to_thread(read_memory, genre, context_variables=ctx)
+
+
+# ---------------------------------------------------------------------------
+# Mock mode — AGENT_PROVIDER=mock swaps every phase with deterministic fakes
+# so tests/E2E runs never touch Anthropic, OpenAI, librosa, or the filesystem.
+# ---------------------------------------------------------------------------
+
+if _PROVIDER_ENV == "mock":
+    from . import mock_pipeline  # noqa: E402
+
+    mock_pipeline.install(sys.modules[__name__])

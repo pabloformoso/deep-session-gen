@@ -72,42 +72,15 @@ def auth_token(auth_client):
 
 @pytest.fixture
 def mock_pipeline(monkeypatch):
-    """Stub every async pipeline phase with deterministic fakes."""
+    """Stub every async pipeline phase with the shared deterministic fakes."""
+    from web.backend import mock_pipeline as fakes
     from web.backend import pipeline
 
-    async def fake_genre(content, history, ctx, emit):
-        await emit({"type": "text_delta", "content": "genre-ok"})
-        return {"genre": "techno", "duration_min": 60, "mood": "dark"}
-
-    async def fake_plan(ctx, emit, memory_summary=""):
-        ctx["playlist"] = [
-            {"id": "t1", "display_name": "Track 1", "bpm": 128, "camelot_key": "9A", "genre": "techno"},
-            {"id": "t2", "display_name": "Track 2", "bpm": 130, "camelot_key": "10A", "genre": "techno"},
-        ]
-        await emit({"type": "tool_call", "name": "propose_playlist", "input": {}})
-
-    async def fake_critique(ctx, emit, memory_summary=""):
-        return ("APPROVED", [], [])
-
-    async def fake_editor(message, history, ctx, emit):
-        if message.startswith("build"):
-            ctx["last_build"] = message.split(maxsplit=1)[1] if " " in message else "default"
-        return "done"
-
-    async def fake_validate(session_name, ctx, emit):
-        return ("PASS", [])
-
-    async def fake_memory(genre, ctx):
-        return ""
-
-    def fake_write(**kwargs):
-        return "saved"
-
-    monkeypatch.setattr(pipeline, "phase_genre_guard", fake_genre)
-    monkeypatch.setattr(pipeline, "phase_plan", fake_plan)
-    monkeypatch.setattr(pipeline, "phase_critique", fake_critique)
-    monkeypatch.setattr(pipeline, "phase_editor", fake_editor)
-    monkeypatch.setattr(pipeline, "phase_validate", fake_validate)
-    monkeypatch.setattr(pipeline, "load_memory", fake_memory)
-    monkeypatch.setattr(pipeline, "write_session_record", fake_write)
+    monkeypatch.setattr(pipeline, "phase_genre_guard", fakes.fake_genre)
+    monkeypatch.setattr(pipeline, "phase_plan", fakes.fake_plan)
+    monkeypatch.setattr(pipeline, "phase_critique", fakes.fake_critique)
+    monkeypatch.setattr(pipeline, "phase_editor", fakes.fake_editor)
+    monkeypatch.setattr(pipeline, "phase_validate", fakes.fake_validate)
+    monkeypatch.setattr(pipeline, "load_memory", fakes.fake_memory)
+    monkeypatch.setattr(pipeline, "write_session_record", fakes.fake_write)
     return pipeline
