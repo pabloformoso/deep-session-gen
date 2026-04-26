@@ -215,6 +215,12 @@ async def _handle_ws_message(s, msg_type: str | None, content: str, emit) -> Non
     if msg_type == "genre_intent":
         s.phase = "genre"
         history = s.messages.setdefault("genre", [])
+        try:
+            await asyncio.to_thread(pipeline.check_catalog)
+        except pipeline.CatalogUnavailable as exc:
+            await emit({"type": "error", "message": str(exc)})
+            s.phase = "init"
+            return
         confirmed = await pipeline.phase_genre_guard(content, history, s.context_variables, emit)
 
         if confirmed:
@@ -222,6 +228,16 @@ async def _handle_ws_message(s, msg_type: str | None, content: str, emit) -> Non
             # Always emit s.to_dict() for phase_complete so the frontend can
             # safely setSession(event.data) without losing fields like playlist.
             await emit({"type": "phase_complete", "phase": "genre", "data": s.to_dict()})
+
+            # Verify the confirmed genre actually has tracks before invoking
+            # the Planner — otherwise the LLM ends up calling get_catalog and
+            # producing a vague "issue accessing the catalog" message.
+            try:
+                await asyncio.to_thread(pipeline.check_catalog, confirmed["genre"])
+            except pipeline.CatalogUnavailable as exc:
+                await emit({"type": "error", "message": str(exc)})
+                s.phase = "init"
+                return
 
             # ── Planner (auto-starts after genre confirmation) ──
             s.phase = "planning"
@@ -237,6 +253,11 @@ async def _handle_ws_message(s, msg_type: str | None, content: str, emit) -> Non
 
     # ── Checkpoint 1 — user approves playlist → run Critic ──────
     elif msg_type == "checkpoint_approve" and s.phase == "checkpoint1":
+        try:
+            await asyncio.to_thread(pipeline.check_catalog, s.context_variables.get("genre"))
+        except pipeline.CatalogUnavailable as exc:
+            await emit({"type": "error", "message": str(exc)})
+            return
         s.phase = "critique"
         await emit({"type": "phase_start", "phase": "critique"})
         memory = await pipeline.load_memory(s.context_variables.get("genre", ""), s.context_variables)
@@ -257,6 +278,11 @@ async def _handle_ws_message(s, msg_type: str | None, content: str, emit) -> Non
 
     # ── Editor command ────────────────────────────────────────────
     elif msg_type == "editor_command" and s.phase == "editing":
+        try:
+            await asyncio.to_thread(pipeline.check_catalog, s.context_variables.get("genre"))
+        except pipeline.CatalogUnavailable as exc:
+            await emit({"type": "error", "message": str(exc)})
+            return
         history = s.messages.setdefault("editor", [])
         await pipeline.phase_editor(content, history, s.context_variables, emit)
 
