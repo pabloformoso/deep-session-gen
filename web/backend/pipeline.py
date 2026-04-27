@@ -87,6 +87,60 @@ _VALIDATOR_TOOLS = [validate_audio]
 
 
 # ---------------------------------------------------------------------------
+# Catalog state check — surfaced to the UI before any LLM call so an empty
+# or missing catalog produces an actionable error instead of a vague
+# "could not confirm genre" failure from the Genre Guard loop.
+# ---------------------------------------------------------------------------
+
+class CatalogUnavailable(Exception):
+    """Raised when tracks.json is missing or has zero entries."""
+
+
+def check_catalog(genre: str | None = None) -> None:
+    """Raise CatalogUnavailable with a user-facing message if the catalog is unusable.
+
+    When `genre` is given, also verify that the catalog contains at least one track
+    for that genre (folder name match, case-insensitive).
+    """
+    catalog_path = _PROJECT_DIR / "tracks" / "tracks.json"
+    if not catalog_path.exists():
+        raise CatalogUnavailable(
+            "No track catalog found. Add WAV files under tracks/<genre>/ and run "
+            "`python main.py --build-catalog` to generate tracks.json."
+        )
+    try:
+        import json
+        with catalog_path.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise CatalogUnavailable(f"tracks.json is unreadable: {exc}") from exc
+
+    entries = data.get("tracks") if isinstance(data, dict) else data
+    if not entries:
+        raise CatalogUnavailable(
+            "Track catalog is empty. Add WAV files under tracks/<genre>/ and run "
+            "`python main.py --build-catalog`."
+        )
+
+    if genre:
+        target = genre.strip().lower()
+        matches = [
+            t for t in entries
+            if (t.get("genre_folder") or t.get("genre") or "").strip().lower() == target
+        ]
+        if not matches:
+            available = sorted({
+                (t.get("genre_folder") or t.get("genre") or "").strip()
+                for t in entries
+                if (t.get("genre_folder") or t.get("genre"))
+            })
+            raise CatalogUnavailable(
+                f"No tracks found for genre '{genre}'. Available genres: "
+                f"{', '.join(available) if available else '(none)'}."
+            )
+
+
+# ---------------------------------------------------------------------------
 # Progress hook — forwards subprocess stage updates from long-running tools
 # (currently only build_session) back to the WebSocket as tool_progress events.
 # The tool runs in a worker thread via asyncio.to_thread, so the callback must
