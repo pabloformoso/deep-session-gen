@@ -21,6 +21,7 @@ tracks/tracks.json
 
 # Audio / video source files (too large for git)
 tracks/**/*.wav
+tracks/**/*.wav.txt
 tracks/**/*.mp3
 tracks/**/*.flac
 tracks/**/*.m4a
