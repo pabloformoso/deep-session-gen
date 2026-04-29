@@ -7,6 +7,16 @@ import subprocess
 import sys
 import wave
 
+# Force UTF-8 on stdout/stderr so non-ASCII print() calls (e.g. "→" in BPM ramp
+# logs) survive on Windows consoles, where the default is cp1252 and inherits
+# into subprocesses launched by the agent's build_session tool.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure") and (_stream.encoding or "").lower() not in ("utf-8", "utf8"):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
 import librosa
 import numpy as np
 import pyrubberband as pyrb
@@ -580,7 +590,7 @@ def redetect_bpm_catalog(genre_filter=None):
         print(f"  {entry.get('display_name','?'):<35}  {old_bpm} → {new_bpm}{flag}")
         updated += 1
 
-    with open(CATALOG_PATH, "w") as f:
+    with open(CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump({"tracks": tracks}, f, indent=2, ensure_ascii=False)
     print(f"\nUpdated {updated} entries → {CATALOG_PATH}")
 
@@ -665,7 +675,7 @@ def fix_incomplete_catalog():
 
         fixed += 1
 
-    with open(CATALOG_PATH, "w") as f:
+    with open(CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump({"tracks": tracks}, f, indent=2, ensure_ascii=False)
     print(f"\nFixed {fixed} entries → {CATALOG_PATH}")
 
@@ -710,7 +720,7 @@ def generate_beatgrid_catalog(genre_filter: str | None = None) -> None:
         print(f"    first beat: {entry['beatgrid']['first_beat_sec']}s")
         updated += 1
 
-    with open(CATALOG_PATH, "w") as f:
+    with open(CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump({"tracks": tracks}, f, indent=2, ensure_ascii=False)
     print(f"\nBeatgrid generated for {updated} track(s) → {CATALOG_PATH}")
 
@@ -799,7 +809,7 @@ def build_catalog():
         new_count += 1
 
     os.makedirs(TRACKS_BASE_DIR, exist_ok=True)
-    with open(CATALOG_PATH, "w") as f:
+    with open(CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump({"tracks": list(updated.values())}, f, indent=2, ensure_ascii=False)
     print(f"\nCatalog written: {len(updated)} total entries ({new_count} new) → {CATALOG_PATH}")
 
@@ -1482,7 +1492,7 @@ Harmonic sequencing, BPM matching, and video rendering, fully automated.
 """
 
     out_path = os.path.join(output_dir, "youtube.md")
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"YouTube metadata saved to {out_path}")
 
@@ -2384,7 +2394,7 @@ def _load_video_backgrounds(video_bg_list, session_dir, darken=VIDEO_BG_DARKEN,
                 mb = frames.nbytes / (1024 * 1024)
                 print(f"    {len(frames)} frames, {dur:.1f}s loop, {mb:.0f} MB")
                 np.save(cache_path, frames)
-                with open(meta_path, 'w') as f:
+                with open(meta_path, 'w', encoding="utf-8") as f:
                     json.dump({"duration": dur}, f)
                 print(f"    Saved to cache: {os.path.basename(cache_path)}")
                 del frames
@@ -2982,7 +2992,7 @@ def main():
 
     # Save session.json to output folder for reproducibility
     session_json_path = os.path.join(output_dir, "session.json")
-    with open(session_json_path, "w") as f:
+    with open(session_json_path, "w", encoding="utf-8") as f:
         json.dump(session_config, f, indent=2, ensure_ascii=False)
     print(f"\nSession saved to {session_json_path}")
 
@@ -3002,7 +3012,7 @@ def main():
         # --- Full pipeline (includes short) ---
         mix, transitions = build_mix(tracks, target_duration_sec=None)
         # Save transitions for future --video-only re-renders
-        with open(transitions_path, "w") as f:
+        with open(transitions_path, "w", encoding="utf-8") as f:
             json.dump(transitions, f, indent=2, ensure_ascii=False)
         export_mix(mix, audio_path)
         validate_mix_file(audio_path, transitions)
