@@ -8,10 +8,10 @@ function deriveWsBase(): string {
   if (explicit) return explicit;
   const apiBase = process.env.NEXT_PUBLIC_API_BASE;
   if (apiBase) return apiBase.replace(/^http/, "ws");
-  // Fallback matches the next.config.ts /api rewrite target: in dev the
-  // backend is on 8800 and Next doesn't proxy WebSockets. For prod set
-  // NEXT_PUBLIC_WS_BASE explicitly.
-  return "ws://localhost:8800";
+  // Next doesn't proxy WebSockets, so the browser connects directly to the
+  // backend. Default to the canonical dev port (matches the /api rewrite in
+  // next.config.ts). For prod or non-default ports set NEXT_PUBLIC_WS_BASE.
+  return "ws://localhost:8000";
 }
 
 const WS_BASE = deriveWsBase();

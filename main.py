@@ -3,15 +3,25 @@ import io
 import json
 import os
 import random
+import subprocess
 import sys
 import wave
+
+# Force UTF-8 on stdout/stderr so non-ASCII print() calls (e.g. "→" in BPM ramp
+# logs) survive on Windows consoles, where the default is cp1252 and inherits
+# into subprocesses launched by the agent's build_session tool.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure") and (_stream.encoding or "").lower() not in ("utf-8", "utf8"):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
 
 import librosa
 import numpy as np
 import pyrubberband as pyrb
 from dotenv import load_dotenv
 from moviepy import (
-    AudioFileClip,
     CompositeVideoClip,
     TextClip,
     VideoClip,
@@ -580,7 +590,7 @@ def redetect_bpm_catalog(genre_filter=None):
         print(f"  {entry.get('display_name','?'):<35}  {old_bpm} → {new_bpm}{flag}")
         updated += 1
 
-    with open(CATALOG_PATH, "w") as f:
+    with open(CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump({"tracks": tracks}, f, indent=2, ensure_ascii=False)
     print(f"\nUpdated {updated} entries → {CATALOG_PATH}")
 
@@ -665,7 +675,7 @@ def fix_incomplete_catalog():
 
         fixed += 1
 
-    with open(CATALOG_PATH, "w") as f:
+    with open(CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump({"tracks": tracks}, f, indent=2, ensure_ascii=False)
     print(f"\nFixed {fixed} entries → {CATALOG_PATH}")
 
@@ -710,7 +720,7 @@ def generate_beatgrid_catalog(genre_filter: str | None = None) -> None:
         print(f"    first beat: {entry['beatgrid']['first_beat_sec']}s")
         updated += 1
 
-    with open(CATALOG_PATH, "w") as f:
+    with open(CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump({"tracks": tracks}, f, indent=2, ensure_ascii=False)
     print(f"\nBeatgrid generated for {updated} track(s) → {CATALOG_PATH}")
 
@@ -799,7 +809,7 @@ def build_catalog():
         new_count += 1
 
     os.makedirs(TRACKS_BASE_DIR, exist_ok=True)
-    with open(CATALOG_PATH, "w") as f:
+    with open(CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump({"tracks": list(updated.values())}, f, indent=2, ensure_ascii=False)
     print(f"\nCatalog written: {len(updated)} total entries ({new_count} new) → {CATALOG_PATH}")
 
@@ -1482,7 +1492,7 @@ Harmonic sequencing, BPM matching, and video rendering, fully automated.
 """
 
     out_path = os.path.join(output_dir, "youtube.md")
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(content)
     print(f"YouTube metadata saved to {out_path}")
 
@@ -1703,22 +1713,24 @@ def generate_short(session_dir, session_config, transitions, audio_path,
         return frame_buf
 
     # 7. Render video
-    audio_clip = AudioFileClip(short_audio_path)
-    duration = audio_clip.duration
+    duration = _wav_duration_sec(short_audio_path)
     bg_clip = VideoClip(make_frame, duration=duration).with_fps(VIDEO_FPS)
-    video = bg_clip.with_audio(audio_clip)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    silent_video_path = output_path.replace(".mp4", ".silent.mp4")
     print(f"\nRendering short to {output_path} ({tgt_w}x{tgt_h}, {VIDEO_FPS}fps)...")
-    video.write_videofile(
-        output_path,
+    bg_clip.write_videofile(
+        silent_video_path,
         fps=VIDEO_FPS,
         codec="libx264",
-        audio_codec="aac",
-        audio_bitrate="320k",
+        audio=False,
         preset="medium",
         logger="bar",
     )
+    print("Muxing audio with ffmpeg...")
+    _mux_audio_into_video(silent_video_path, short_audio_path, output_path)
+    if os.path.exists(silent_video_path):
+        os.remove(silent_video_path)
 
     # Clean up temp audio
     if os.path.exists(short_audio_path):
@@ -1729,6 +1741,28 @@ def generate_short(session_dir, session_config, transitions, audio_path,
 
 
 # === Video generation ===
+
+def _mux_audio_into_video(silent_video_path, audio_path, output_path,
+                          audio_codec="aac", audio_bitrate="320k", sample_rate=48000):
+    # Direct ffmpeg pass: copy the silent video stream verbatim and encode the WAV
+    # to AAC in one shot. Bypasses moviepy's chained ffmpeg pipes, which corrupted
+    # audio at chunk boundaries on Windows.
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", silent_video_path,
+        "-i", audio_path,
+        "-c:v", "copy",
+        "-c:a", audio_codec, "-b:a", audio_bitrate, "-ar", str(sample_rate),
+        "-movflags", "+faststart",
+        "-loglevel", "error",
+        output_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg mux failed (exit {result.returncode}):\n{result.stderr}"
+        )
+
 
 def _precompute_audio_data(audio_path):
     """Load audio, compute amplitude envelope, spectral band energies, and beat times.
@@ -2360,7 +2394,7 @@ def _load_video_backgrounds(video_bg_list, session_dir, darken=VIDEO_BG_DARKEN,
                 mb = frames.nbytes / (1024 * 1024)
                 print(f"    {len(frames)} frames, {dur:.1f}s loop, {mb:.0f} MB")
                 np.save(cache_path, frames)
-                with open(meta_path, 'w') as f:
+                with open(meta_path, 'w', encoding="utf-8") as f:
                     json.dump({"duration": dur}, f)
                 print(f"    Saved to cache: {os.path.basename(cache_path)}")
                 del frames
@@ -2675,8 +2709,7 @@ def generate_video(audio_path, transitions, output_path, artwork_dir,
     # Resolve theme (merges session overrides with defaults)
     theme = _get_session_theme(session_config)
 
-    audio = AudioFileClip(audio_path)
-    total_duration = audio.duration
+    total_duration = _wav_duration_sec(audio_path)
     width = VIDEO_SIZE[0]
 
     # Pre-compute audio data (envelope, spectral bands, beats)
@@ -2815,18 +2848,21 @@ def generate_video(audio_path, transitions, output_path, artwork_dir,
     titles = _precompute_title_images(transitions, total_duration, width, theme=theme)
 
     bg = VideoClip(make_frame, duration=total_duration)
-    video = bg.with_audio(audio)
 
+    silent_video_path = output_path.replace(".mp4", ".silent.mp4")
     print(f"\nRendering video to {output_path} ({VIDEO_SIZE[0]}x{VIDEO_SIZE[1]}, {VIDEO_FPS}fps)...")
-    video.write_videofile(
-        output_path,
+    bg.write_videofile(
+        silent_video_path,
         fps=VIDEO_FPS,
         codec="libx264",
-        audio_codec="aac",
-        audio_bitrate="320k",
+        audio=False,
         preset="medium",
         logger="bar",
     )
+    print("Muxing audio with ffmpeg...")
+    _mux_audio_into_video(silent_video_path, audio_path, output_path)
+    if os.path.exists(silent_video_path):
+        os.remove(silent_video_path)
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print(f"Video done! {size_mb:.1f} MB")
 
@@ -2956,7 +2992,7 @@ def main():
 
     # Save session.json to output folder for reproducibility
     session_json_path = os.path.join(output_dir, "session.json")
-    with open(session_json_path, "w") as f:
+    with open(session_json_path, "w", encoding="utf-8") as f:
         json.dump(session_config, f, indent=2, ensure_ascii=False)
     print(f"\nSession saved to {session_json_path}")
 
@@ -2976,7 +3012,7 @@ def main():
         # --- Full pipeline (includes short) ---
         mix, transitions = build_mix(tracks, target_duration_sec=None)
         # Save transitions for future --video-only re-renders
-        with open(transitions_path, "w") as f:
+        with open(transitions_path, "w", encoding="utf-8") as f:
             json.dump(transitions, f, indent=2, ensure_ascii=False)
         export_mix(mix, audio_path)
         validate_mix_file(audio_path, transitions)
