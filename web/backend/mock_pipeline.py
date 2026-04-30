@@ -66,6 +66,12 @@ def fake_write(**kwargs) -> str:
     return "saved"
 
 
+def fake_check_catalog(genre: str | None = None) -> None:
+    """No-op stand-in for `pipeline.check_catalog` — tests/E2E never need a
+    real `tracks/tracks.json` since every phase is a deterministic fake."""
+    return None
+
+
 def install(pipeline_module) -> None:
     """Swap every phase_* on the live pipeline module with the fakes above."""
     pipeline_module.phase_genre_guard = fake_genre
@@ -75,3 +81,4 @@ def install(pipeline_module) -> None:
     pipeline_module.phase_validate = fake_validate
     pipeline_module.load_memory = fake_memory
     pipeline_module.write_session_record = fake_write
+    pipeline_module.check_catalog = fake_check_catalog

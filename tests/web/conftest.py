@@ -84,4 +84,5 @@ def mock_pipeline(monkeypatch):
     monkeypatch.setattr(pipeline, "phase_validate", fakes.fake_validate)
     monkeypatch.setattr(pipeline, "load_memory", fakes.fake_memory)
     monkeypatch.setattr(pipeline, "write_session_record", fakes.fake_write)
+    monkeypatch.setattr(pipeline, "check_catalog", fakes.fake_check_catalog)
     return pipeline

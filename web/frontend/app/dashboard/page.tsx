@@ -62,6 +62,12 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => router.push("/catalog")}
+            className="text-muted text-xs hover:text-neon transition-colors"
+          >
+            Catalog →
+          </button>
+          <button
             onClick={handleCreate}
             className="bg-neon text-[#0a0a0f] px-4 py-2 rounded text-xs font-bold tracking-widest uppercase hover:bg-neon-dim transition-colors"
           >
