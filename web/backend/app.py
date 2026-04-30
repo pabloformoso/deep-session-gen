@@ -87,6 +87,22 @@ async def me(current_user: dict = Depends(auth.get_current_user)):
 
 
 # ---------------------------------------------------------------------------
+# Catalog (read-only browse of tracks.json)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/catalog")
+async def get_catalog(
+    genre: str | None = Query(None, description="Filter by genre_folder (case-insensitive)"),
+    _user: dict = Depends(auth.get_current_user),
+):
+    try:
+        tracks, genres = await asyncio.to_thread(pipeline.load_catalog, genre)
+    except pipeline.CatalogUnavailable as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"tracks": tracks, "genres": genres}
+
+
+# ---------------------------------------------------------------------------
 # Sessions — REST CRUD
 # ---------------------------------------------------------------------------
 

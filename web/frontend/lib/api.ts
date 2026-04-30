@@ -1,5 +1,5 @@
 import { getToken } from "./auth";
-import type { SessionState } from "./types";
+import type { Catalog, SessionState } from "./types";
 
 const BASE = `${process.env.NEXT_PUBLIC_API_BASE ?? ""}/api`;
 
@@ -63,3 +63,9 @@ export const rateSession = (
     method: "POST",
     body: JSON.stringify({ rating, notes, transition_ratings }),
   });
+
+// Catalog
+export const getCatalog = (genre?: string) => {
+  const qs = genre ? `?genre=${encodeURIComponent(genre)}` : "";
+  return req<Catalog>(`/catalog${qs}`);
+};

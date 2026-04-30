@@ -11,6 +11,18 @@ export type Phase =
   | "rating"
   | "complete";
 
+export interface Suno {
+  title?: string;
+  artist?: string;
+  year?: string;
+  prompt?: string;
+  lyrics?: string;
+  tags?: string;
+  cover_url?: string;
+  suno_id?: string;
+  disambiguated?: boolean;
+}
+
 export interface Track {
   id: string;
   display_name: string;
@@ -18,6 +30,15 @@ export interface Track {
   camelot_key: string | null;
   duration_sec: number | null;
   genre: string | null;
+  genre_folder?: string;
+  file?: string;
+  variant_of?: string | null;
+  suno?: Suno;
+}
+
+export interface Catalog {
+  tracks: Track[];
+  genres: string[];
 }
 
 export interface StructuredProblem {

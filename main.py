@@ -3,6 +3,7 @@ import io
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 import wave
@@ -565,7 +566,7 @@ def redetect_bpm_catalog(genre_filter=None):
         print("Error: catalog not found. Run --build-catalog first.")
         sys.exit(1)
 
-    with open(CATALOG_PATH) as f:
+    with open(CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
     tracks = data["tracks"]
@@ -601,7 +602,7 @@ def fix_incomplete_catalog():
         print("Error: catalog not found. Run --build-catalog first.")
         sys.exit(1)
 
-    with open(CATALOG_PATH) as f:
+    with open(CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
     tracks = data["tracks"]
@@ -691,7 +692,7 @@ def generate_beatgrid_catalog(genre_filter: str | None = None) -> None:
         print("Error: catalog not found. Run --build-catalog first.")
         sys.exit(1)
 
-    with open(CATALOG_PATH) as f:
+    with open(CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
     tracks = data["tracks"]
@@ -725,6 +726,242 @@ def generate_beatgrid_catalog(genre_filter: str | None = None) -> None:
     print(f"\nBeatgrid generated for {updated} track(s) → {CATALOG_PATH}")
 
 
+_UUID_RE = re.compile(
+    r"-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}",
+    re.IGNORECASE,
+)
+
+
+def parse_suno_sidecar(wav_path: str) -> dict | None:
+    """Parse a Suno `<wav>.txt` sidecar into structured fields.
+
+    Returns None if no sidecar exists. Returns a dict (possibly partial) otherwise.
+    """
+    sidecar_path = wav_path + ".txt"
+    if not os.path.exists(sidecar_path):
+        return None
+    try:
+        with open(sidecar_path, encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return None
+
+    info: dict = {}
+    for label, key in (("Title", "title"), ("Artist", "artist"), ("Year", "year")):
+        m = re.search(rf"^{label}:\s*(.+)$", text, re.MULTILINE)
+        if m:
+            info[key] = m.group(1).strip()
+
+    m = re.search(r"^Cover Art URL:\s*(\S+)", text, re.MULTILINE)
+    if m:
+        info["cover_url"] = m.group(1).strip()
+
+    m = re.search(r"^Prompt:\s*(.+)$", text, re.MULTILINE)
+    if m:
+        info["prompt"] = m.group(1).strip()
+
+    m = re.search(r"--- Lyrics ---\s*\n(.+?)(?=\n\nCover Art URL:|\n\n--- )", text, re.DOTALL)
+    if m:
+        info["lyrics"] = m.group(1).strip()
+
+    raw = re.search(r"--- Raw API Response ---\s*\n(\{.+\})", text, re.DOTALL)
+    if raw:
+        try:
+            obj = json.loads(raw.group(1))
+            if isinstance(obj.get("id"), str):
+                info["suno_id"] = obj["id"]
+            tags = None
+            if isinstance(obj.get("metadata"), dict):
+                tags = obj["metadata"].get("tags")
+            if tags is None:
+                tags = obj.get("tags")
+            if tags:
+                info["tags"] = tags
+        except Exception:
+            pass
+
+    return info or None
+
+
+def _looks_like_legacy_filename(name: str | None) -> bool:
+    """True if display_name still embeds a Suno UUID (i.e. never migrated)."""
+    if not name:
+        return True
+    return bool(_UUID_RE.search(name))
+
+
+def _attach_suno_metadata(entry: dict, wav_path: str) -> bool:
+    """Ensure entry has a `suno` block and a clean `display_name` if a sidecar exists.
+
+    Returns True if entry was mutated.
+    """
+    mutated = False
+    if "suno" not in entry:
+        sidecar = parse_suno_sidecar(wav_path)
+        if sidecar:
+            entry["suno"] = sidecar
+            mutated = True
+    suno = entry.get("suno") or {}
+    title = suno.get("title")
+    current = entry.get("display_name")
+    if title and (not current or _looks_like_legacy_filename(current)):
+        if current != title:
+            entry["display_name"] = title
+            mutated = True
+    return mutated
+
+
+def _collision_groups(entries: list[dict]) -> list[tuple[str, str, list[dict]]]:
+    """Group entries with shared (genre_folder, display_name). Returns groups of size > 1."""
+    buckets: dict[tuple[str, str], list[dict]] = {}
+    for e in entries:
+        key = (e.get("genre_folder", ""), e.get("display_name", ""))
+        if not key[1]:
+            continue
+        buckets.setdefault(key, []).append(e)
+    return [(gf, name, members) for (gf, name), members in buckets.items() if len(members) > 1]
+
+
+def _llm_disambiguate(groups_payload: list[dict]) -> dict[str, str]:
+    """Single-shot LLM call returning {track_id: new_display_name}.
+
+    Tries Anthropic first (Claude), then OpenAI. Returns {} on any failure.
+    """
+    system = (
+        "You rename Suno-generated tracks that share titles within a music genre. "
+        "Each group below shares a title; give every track a unique, evocative new title that "
+        "still hints at the original. Keep names short (2-5 words), no quotes, no track ids, "
+        "no generic suffixes like '(Mix 2)' or '(v3)'. Use the BPM, key, prompt, and tags as "
+        "creative cues. Critical: every new name must be globally unique — do not reuse the "
+        "same name across different groups. Return ONLY a JSON object mapping track id → new "
+        "name, no commentary."
+    )
+    user = "Groups:\n" + json.dumps(groups_payload, indent=2, ensure_ascii=False)
+
+    text: str | None = None
+
+    if os.getenv("ANTHROPIC_API_KEY"):
+        try:
+            import anthropic  # type: ignore
+
+            client = anthropic.Anthropic()
+            resp = client.messages.create(
+                model="claude-opus-4-6",
+                max_tokens=4000,
+                system=system,
+                messages=[
+                    {"role": "user", "content": user},
+                    {"role": "assistant", "content": "{"},
+                ],
+            )
+            block_text = "".join(
+                getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text"
+            )
+            text = "{" + block_text
+        except Exception as e:
+            print(f"  [Anthropic disambiguation failed: {e}]")
+
+    if text is None and os.getenv("OPENAI_API_KEY"):
+        try:
+            client = OpenAI()
+            resp = client.chat.completions.create(
+                model="gpt-4o",
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+            text = resp.choices[0].message.content
+        except Exception as e:
+            print(f"  [OpenAI disambiguation failed: {e}]")
+            return {}
+
+    if not text:
+        print("  [No LLM provider available — skipping disambiguation]")
+        return {}
+
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```\w*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text)
+
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError as e:
+        print(f"  [LLM returned non-JSON: {e}]")
+        return {}
+    if not isinstance(obj, dict):
+        return {}
+    return {str(k): str(v).strip() for k, v in obj.items() if v}
+
+
+def _disambiguate_pass(entries: list[dict]) -> int:
+    """One pass: detect collisions, send to LLM, apply renames. Returns entries renamed."""
+    collisions = _collision_groups(entries)
+    actionable = [
+        (gf, name, members)
+        for gf, name, members in collisions
+        if all(m.get("suno", {}).get("title") for m in members)
+    ]
+    if not actionable:
+        return 0
+
+    affected = sum(len(m) for _, _, m in actionable)
+    print(f"\n=== Disambiguating {affected} tracks across {len(actionable)} title collisions ===")
+
+    payload: list[dict] = []
+    for gf, name, members in actionable:
+        group = {"genre": gf, "shared_title": name, "tracks": []}
+        for m in members:
+            suno = m.get("suno", {}) or {}
+            group["tracks"].append(
+                {
+                    "id": m["id"],
+                    "original_title": suno.get("title"),
+                    "bpm": m.get("bpm"),
+                    "key": m.get("camelot_key"),
+                    "prompt": (suno.get("prompt") or "")[:300],
+                    "tags": (suno.get("tags") or "")[:200],
+                }
+            )
+        payload.append(group)
+
+    new_names = _llm_disambiguate(payload)
+    if not new_names:
+        return 0
+
+    by_id = {e["id"]: e for e in entries}
+    renamed = 0
+    for tid, new_name in new_names.items():
+        e = by_id.get(tid)
+        if not e:
+            continue
+        new_clean = new_name.strip().strip('"').strip("'")
+        if not new_clean or new_clean == e.get("display_name"):
+            continue
+        old = e.get("display_name")
+        e["display_name"] = new_clean
+        suno = e.setdefault("suno", {})
+        suno["disambiguated"] = True
+        renamed += 1
+        print(f"  [{e.get('genre_folder','?')}] {old}  →  {new_clean}")
+    return renamed
+
+
+def disambiguate_collisions(entries: list[dict], max_passes: int = 3) -> int:
+    """Resolve display_name collisions iteratively. Returns total renamed across passes."""
+    total = 0
+    for i in range(max_passes):
+        renamed = _disambiguate_pass(entries)
+        if renamed == 0:
+            break
+        total += renamed
+        if i + 1 < max_passes and _collision_groups(entries):
+            print(f"  → {len(_collision_groups(entries))} collision(s) remain, running another pass")
+    return total
+
+
 def build_catalog():
     """Scan all genre folders, detect BPM and Camelot key for new tracks, update tracks.json."""
     print("=== Building Track Catalog ===\n")
@@ -732,7 +969,7 @@ def build_catalog():
     # Load existing catalog
     existing = {}
     if os.path.exists(CATALOG_PATH):
-        with open(CATALOG_PATH) as f:
+        with open(CATALOG_PATH, encoding="utf-8") as f:
             data = json.load(f)
         for entry in data.get("tracks", []):
             existing[entry["file"]] = entry
@@ -757,10 +994,10 @@ def build_catalog():
                 print(f"  [beatgrid] {os.path.basename(wav_path)}")
                 entry["beatgrid"] = detect_beatgrid(wav_path, entry.get("bpm"))
                 needs_patch = True
+            if _attach_suno_metadata(entry, wav_path):
+                needs_patch = True
             if needs_patch:
                 updated[rel_path] = entry
-            else:
-                continue  # fully cataloged, skip
             continue
 
         if genre_folder not in folder_lookups:
@@ -794,7 +1031,7 @@ def build_catalog():
             print(f"    Camelot key (from session.json): {camelot_key}")
 
         duration_sec = _wav_duration_sec(wav_path)
-        updated[rel_path] = {
+        new_entry = {
             "id": _make_track_id(genre_folder, base_name, is_variant),
             "display_name": base_name,
             "file": rel_path,
@@ -806,12 +1043,19 @@ def build_catalog():
             "variant_of": base_name if is_variant else None,
             "beatgrid": beatgrid,
         }
+        _attach_suno_metadata(new_entry, wav_path)
+        updated[rel_path] = new_entry
         new_count += 1
+
+    renamed = disambiguate_collisions(list(updated.values()))
 
     os.makedirs(TRACKS_BASE_DIR, exist_ok=True)
     with open(CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump({"tracks": list(updated.values())}, f, indent=2, ensure_ascii=False)
-    print(f"\nCatalog written: {len(updated)} total entries ({new_count} new) → {CATALOG_PATH}")
+    print(
+        f"\nCatalog written: {len(updated)} total entries ({new_count} new, "
+        f"{renamed} renamed) → {CATALOG_PATH}"
+    )
 
 
 # === Smart session generation ===
@@ -821,7 +1065,7 @@ def load_catalog(genre):
     if not os.path.exists(CATALOG_PATH):
         print(f"Error: catalog not found at {CATALOG_PATH}. Run --build-catalog first.")
         sys.exit(1)
-    with open(CATALOG_PATH) as f:
+    with open(CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
     genre_lower = genre.lower()
     tracks = [t for t in data["tracks"] if t["genre_folder"].lower() == genre_lower]
@@ -2898,6 +3142,7 @@ def _parse_args():
 def main():
     print("=== Deep Session Generator ===\n")
 
+    load_dotenv()
     args = _parse_args()
 
     # --build-catalog: scan all genre folders and exit
@@ -2930,7 +3175,6 @@ def main():
         print("       python main.py --build-catalog")
         sys.exit(1)
 
-    load_dotenv()
     if not os.environ.get("OPENAI_API_KEY"):
         print("Warning: OPENAI_API_KEY not set. Artwork generation will be skipped.\n")
 

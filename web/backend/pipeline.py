@@ -140,6 +140,36 @@ def check_catalog(genre: str | None = None) -> None:
             )
 
 
+def load_catalog(genre: str | None = None) -> tuple[list[dict], list[str]]:
+    """Read tracks.json and return (filtered_tracks, all_available_genre_folders).
+
+    Filters by genre_folder when `genre` is provided (case-insensitive). Raises
+    CatalogUnavailable on missing/unreadable/empty catalog or unknown genre.
+    """
+    check_catalog(genre)
+    import json
+
+    catalog_path = _PROJECT_DIR / "tracks" / "tracks.json"
+    with catalog_path.open(encoding="utf-8") as fh:
+        data = json.load(fh)
+    entries = data.get("tracks") if isinstance(data, dict) else data
+
+    genres = sorted({
+        (t.get("genre_folder") or t.get("genre") or "").strip()
+        for t in entries
+        if (t.get("genre_folder") or t.get("genre"))
+    })
+
+    if genre:
+        target = genre.strip().lower()
+        entries = [
+            t for t in entries
+            if (t.get("genre_folder") or t.get("genre") or "").strip().lower() == target
+        ]
+
+    return entries, genres
+
+
 # ---------------------------------------------------------------------------
 # Progress hook — forwards subprocess stage updates from long-running tools
 # (currently only build_session) back to the WebSocket as tool_progress events.
