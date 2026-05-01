@@ -513,7 +513,7 @@ def _load_catalog() -> list[dict]:
     catalog_path = _PROJECT_DIR / "tracks" / "tracks.json"
     if not catalog_path.exists():
         return []
-    with open(catalog_path) as f:
+    with open(catalog_path, encoding="utf-8") as f:
         return json.load(f).get("tracks", [])
 
 

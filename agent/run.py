@@ -658,7 +658,7 @@ def _catalog_needs_sync() -> bool:
     if not _catalog.exists():
         return True
     try:
-        with open(_catalog) as f:
+        with open(_catalog, encoding="utf-8") as f:
             data = json.load(f)
         cataloged = {e["file"] for e in data.get("tracks", [])}
         for folder in os.listdir(_tracks_dir):

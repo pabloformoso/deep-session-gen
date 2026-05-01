@@ -223,7 +223,7 @@ def list_genres(context_variables: dict) -> str:
     """List all available genre folders from the track catalog."""
     if not _CATALOG_PATH.exists():
         return "Error: tracks.json not found. Run 'python main.py --build-catalog' first."
-    with open(_CATALOG_PATH) as f:
+    with open(_CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
     genres = sorted({t["genre_folder"] for t in data["tracks"]})
     return "Available genres:\n" + "\n".join(f"  - {g}" for g in genres)
@@ -245,7 +245,7 @@ def get_catalog(genre: str, context_variables: dict) -> str:
     if not genre or genre.lower() in ("current", "session"):
         genre = context_variables.get("genre", genre) or genre
 
-    with open(_CATALOG_PATH) as f:
+    with open(_CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
     genre_lower = genre.lower()
@@ -283,7 +283,7 @@ def propose_playlist(
     if not _CATALOG_PATH.exists():
         return "Error: tracks.json not found. Run --build-catalog first."
 
-    with open(_CATALOG_PATH) as f:
+    with open(_CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
     genre_lower = genre.lower()
@@ -335,7 +335,7 @@ def analyze_transition(track_a_id: str, track_b_id: str, context_variables: dict
     if not _CATALOG_PATH.exists():
         return "Error: catalog not found."
 
-    with open(_CATALOG_PATH) as f:
+    with open(_CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
     index = {t["id"]: t for t in data["tracks"]}
@@ -389,7 +389,7 @@ def swap_track(position: int, track_id: str, context_variables: dict) -> str:
     if not _CATALOG_PATH.exists():
         return "Error: catalog not found."
 
-    with open(_CATALOG_PATH) as f:
+    with open(_CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
     index = {t["id"]: t for t in data["tracks"]}
@@ -489,7 +489,7 @@ def suggest_bridge_track(from_pos: int, to_pos: int, context_variables: dict) ->
     target_bpm = math.sqrt(bpm_a * bpm_b)
 
     try:
-        with open(_CATALOG_PATH) as f:
+        with open(_CATALOG_PATH, encoding="utf-8") as f:
             catalog = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
         return f"Could not load catalog: {e}"
@@ -556,7 +556,7 @@ def insert_bridge_track(after_position: int, track_id: str, context_variables: d
         return f"after_position must be between 1 and {n}."
 
     try:
-        with open(_CATALOG_PATH) as f:
+        with open(_CATALOG_PATH, encoding="utf-8") as f:
             catalog = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
         return f"Could not load catalog: {e}"
@@ -666,7 +666,7 @@ def build_session(session_name: str, context_variables: dict) -> str:
         ],
     }
 
-    with open(draft_path, "w") as f:
+    with open(draft_path, "w", encoding="utf-8") as f:
         json.dump(session_config, f, indent=2)
 
     # Kick off main.py --from-session
@@ -763,7 +763,7 @@ def catalog_status(context_variables: dict) -> str:
     # Load catalog
     cataloged: dict[str, dict] = {}
     if _CATALOG_PATH.exists():
-        with open(_CATALOG_PATH) as f:
+        with open(_CATALOG_PATH, encoding="utf-8") as f:
             data = json.load(f)
         for entry in data.get("tracks", []):
             cataloged[entry["file"]] = entry
@@ -923,7 +923,7 @@ def rebuild_catalog(context_variables: dict) -> str:
     if result.returncode == 0:
         # Read catalog to report how many total tracks now
         if _CATALOG_PATH.exists():
-            with open(_CATALOG_PATH) as f:
+            with open(_CATALOG_PATH, encoding="utf-8") as f:
                 data = json.load(f)
             total = len(data.get("tracks", []))
             return f"Catalog updated successfully. Total tracks in catalog: {total}."
@@ -1030,7 +1030,7 @@ def read_memory(genre: str, context_variables: dict) -> str:
     if not _MEMORY_PATH.exists():
         return "No memory yet for this genre."
 
-    with open(_MEMORY_PATH) as f:
+    with open(_MEMORY_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
     sessions = [
@@ -1170,7 +1170,7 @@ def write_session_record(
     from datetime import datetime  # noqa: PLC0415
 
     if _MEMORY_PATH.exists():
-        with open(_MEMORY_PATH) as f:
+        with open(_MEMORY_PATH, encoding="utf-8") as f:
             data = json.load(f)
     else:
         data = {"schema_version": 2, "sessions": []}
@@ -1202,7 +1202,7 @@ def write_session_record(
 
     # Atomic write via temp file
     tmp = _MEMORY_PATH.with_suffix(".tmp")
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     os.replace(tmp, _MEMORY_PATH)
 
@@ -1336,7 +1336,7 @@ def preview_transition(pos_a: int, pos_b: int, session_name: str,
     if not tj_path.exists():
         return f"transitions.json not found for session '{session_name}'."
 
-    with open(tj_path) as f:
+    with open(tj_path, encoding="utf-8") as f:
         transitions = json.load(f)
 
     # transitions[i] is the entry for the track at 1-indexed playlist position i+1
@@ -1387,7 +1387,7 @@ def play_track(track_id: str, start_sec: int, duration_sec: int,
     """
     if not _CATALOG_PATH.exists():
         return "Error: tracks.json not found."
-    with open(_CATALOG_PATH) as f:
+    with open(_CATALOG_PATH, encoding="utf-8") as f:
         data = json.load(f)
     index = {t["id"]: t for t in data["tracks"]}
     track = index.get(track_id)
@@ -1444,12 +1444,12 @@ def start_live_session(session_name: str, context_variables: dict) -> str:
         session_file = _PROJECT_DIR / "output" / session_name / "session.json"
         if not session_file.exists():
             return f"No playlist in context and session '{session_name}' not found on disk."
-        with open(session_file) as f:
+        with open(session_file, encoding="utf-8") as f:
             data = json.load(f)
         # Enrich playlist entries with catalog metadata (bpm, camelot_key, id)
         catalog: dict[str, dict] = {}
         if _CATALOG_PATH.exists():
-            with open(_CATALOG_PATH) as f:
+            with open(_CATALOG_PATH, encoding="utf-8") as f:
                 cat_data = json.load(f)
             catalog = {t["file"]: t for t in cat_data.get("tracks", [])}
         playlist = []
@@ -1484,7 +1484,7 @@ def import_rekordbox(xml_path: str, context_variables: dict) -> str:
     if not _CATALOG_PATH.exists():
         return "tracks.json not found — run --build-catalog first."
 
-    with open(_CATALOG_PATH) as f:
+    with open(_CATALOG_PATH, encoding="utf-8") as f:
         catalog_data = json.load(f)
 
     tracks = catalog_data.get("tracks", [])
@@ -1534,7 +1534,7 @@ def import_rekordbox(xml_path: str, context_variables: dict) -> str:
             cat_entry["beatgrid"] = beatgrid
         updated += 1
 
-    with open(_CATALOG_PATH, "w") as f:
+    with open(_CATALOG_PATH, "w", encoding="utf-8") as f:
         json.dump(catalog_data, f, indent=2, ensure_ascii=False)
 
     summary = f"Rekordbox import: {updated} tracks updated."
