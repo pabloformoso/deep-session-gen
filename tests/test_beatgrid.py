@@ -153,15 +153,18 @@ class TestDetectBeatgrid:
         result = self._call(y, sr, bpm=128.0)
         assert result["first_beat_sec"] >= 0.0
 
-    def test_bpm_consistent_with_hint(self):
-        """Returned bpm should equal the beat_track tempo output (not the hint)."""
+    def test_bpm_trusts_caller_hint_over_librosa(self):
+        """Returned bpm equals the caller-supplied hint, not librosa's
+        re-derived tempo. detect_bpm has already done octave correction; if
+        librosa drifts back to the doubled value on the second pass we'd
+        otherwise lose that correction in the stored beatgrid."""
         y, sr = _silent_wav()
-        # beat_track returns 130, even though we hint 128
+        # beat_track returns 130 (e.g. octave drift), but the caller hinted 128
         with patch("main.librosa.load", return_value=(y, sr)), \
              patch("main.librosa.beat.beat_track", return_value=(np.array(130.0), np.array([100]))), \
              patch("main.librosa.frames_to_time", return_value=np.array([100 / sr])):
             result = detect_beatgrid("fake.wav", bpm=128.0)
-        assert result["bpm"] == 130.0
+        assert result["bpm"] == 128.0
 
 
 # ---------------------------------------------------------------------------
