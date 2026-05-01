@@ -691,6 +691,12 @@ def build_session(session_name: str, context_variables: dict) -> str:
     if os.name == "nt":
         popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
+    # Force UTF-8 stdio on the child. main.py's `sys.stdout.reconfigure()` does
+    # not take effect on Windows when stdout is a pipe (cp1252 stays in place
+    # and `print(... '→' ...)` crashes mid-mix); the env var is the only
+    # reliable knob here.
+    child_env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+
     progress = context_variables.get("_progress")
     if progress is not None:
         proc = subprocess.Popen(
@@ -700,6 +706,7 @@ def build_session(session_name: str, context_variables: dict) -> str:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=child_env,
             **popen_kwargs,
         )
         assert proc.stdout is not None
@@ -714,7 +721,9 @@ def build_session(session_name: str, context_variables: dict) -> str:
                     pass  # never let UI plumbing break the build
         returncode = proc.wait()
     else:
-        returncode = subprocess.run(cmd, cwd=str(_PROJECT_DIR), **popen_kwargs).returncode
+        returncode = subprocess.run(
+            cmd, cwd=str(_PROJECT_DIR), env=child_env, **popen_kwargs
+        ).returncode
 
     if returncode == 0:
         context_variables["last_build"] = session_name
