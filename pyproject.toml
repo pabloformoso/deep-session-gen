@@ -18,6 +18,8 @@ dependencies = [
     "soundfile>=0.13.1",
     "sounddevice>=0.5.0",
     "pyrekordbox>=0.4.0",
+    "pyloudnorm>=0.2.0",
+    "pedalboard>=0.9.22",
 ]
 
 [dependency-groups]

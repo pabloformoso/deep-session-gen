@@ -20,6 +20,8 @@ for _stream in (sys.stdout, sys.stderr):
 
 import librosa
 import numpy as np
+import pedalboard
+import pyloudnorm as pyln
 import pyrubberband as pyrb
 from dotenv import load_dotenv
 from moviepy import (
@@ -54,6 +56,19 @@ FADE_OUT_SEC = 5            # Fade-out at the very end of the mix
 # native-tempo overlap sounds better than a forced match.
 SOFT_FADE_RATIO_THRESHOLD = 1.4
 SOFT_FADE_CROSSFADE_SEC = 24
+
+# Per-track loudness normalisation target (ITU-R BS.1770 integrated LUFS).
+# YouTube/Spotify/streaming target ~-14 LUFS for music; we go a touch quieter
+# so summed crossfade peaks stay safely below the bus limiter ceiling.
+LOUDNESS_TARGET_LUFS = -16.0
+LOUDNESS_GAIN_LIMIT_DB = 12.0   # cap how much we'll boost a quiet track
+LOUDNESS_CUT_LIMIT_DB = 24.0    # cap how much we'll attenuate a loud track
+
+# Final brick-wall limiter ceiling on the bus, applied after the full mix is
+# concatenated. Catches any constructive-sum peak that LUFS-normalised tracks
+# can still produce when phase aligns during a crossfade.
+BUS_LIMITER_CEILING_DB = -0.5
+BUS_LIMITER_RELEASE_MS = 120.0
 
 TARGET_DURATION_SEC = 3600
 EXPORT_BITRATE = "320k"
@@ -315,6 +330,64 @@ def _numpy_to_segment(data, segment):
         frame_rate=segment.frame_rate,
         channels=segment.channels,
     )
+
+
+def _normalize_loudness(segment: AudioSegment, target_lufs: float = LOUDNESS_TARGET_LUFS) -> tuple[AudioSegment, float]:
+    """Gain-adjust a track to a target integrated LUFS (ITU-R BS.1770).
+
+    Replaces the static -3 dB headroom that the previous build_mix applied:
+    tracks that ship loud get more attenuation, quieter tracks get a small
+    boost. After this every track has predictable energy, so a crossfade
+    between two LUFS-normalised tracks won't double in level.
+
+    Returns (gained_segment, applied_gain_db). If the loudness measurement
+    fails (silent or sub-second segment) we fall back to the legacy -3 dB.
+    """
+    y = _segment_to_numpy(segment)
+    sr = segment.frame_rate
+    try:
+        meter = pyln.Meter(sr)
+        loudness = float(meter.integrated_loudness(y))
+    except Exception:
+        return (segment - 3, -3.0)
+    if not np.isfinite(loudness):
+        return (segment - 3, -3.0)
+    gain_db = target_lufs - loudness
+    # Clamp so silent / mastered-loud outliers don't wreck headroom or dynamics.
+    gain_db = max(-LOUDNESS_CUT_LIMIT_DB, min(LOUDNESS_GAIN_LIMIT_DB, gain_db))
+    return (segment + gain_db, gain_db)
+
+
+def _apply_bus_limiter(
+    mix: AudioSegment,
+    ceiling_db: float = BUS_LIMITER_CEILING_DB,
+    release_ms: float = BUS_LIMITER_RELEASE_MS,
+) -> AudioSegment:
+    """Brick-wall limit the full mix so peaks never exceed `ceiling_db`.
+
+    Implemented as a Pedalboard Compressor with ratio=100 and attack=0 —
+    pedalboard.Limiter is actually a maximizer (auto-makeup to 0 dBFS), so
+    Compressor at extreme ratio is the correct primitive for a transparent
+    ceiling. Quiet sections pass through untouched; only peaks above the
+    ceiling get clamped.
+    """
+    y = _segment_to_numpy(mix).astype(np.float32)
+    if y.ndim == 1:
+        y = y[:, None]  # pedalboard expects (n_samples, n_channels)
+    board = pedalboard.Pedalboard(
+        [
+            pedalboard.Compressor(
+                threshold_db=ceiling_db,
+                ratio=100.0,
+                attack_ms=0.0,
+                release_ms=release_ms,
+            )
+        ]
+    )
+    y_out = board(y, mix.frame_rate)
+    if mix.channels == 1:
+        y_out = y_out[:, 0]
+    return _numpy_to_segment(y_out, mix)
 
 
 def _apply_crossfade_eq(segment: AudioSegment, role: str, key_distance: int) -> AudioSegment:
@@ -1394,11 +1467,11 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
         native_bpm = track["bpm"]
         beats = track["beats"]
         segment = AudioSegment.from_file(track["path"])
-        segment = segment - 3  # -3dB headroom to prevent crossfade clipping
+        segment, lufs_gain_db = _normalize_loudness(segment, LOUDNESS_TARGET_LUFS)
         duration_sec = len(segment) / 1000.0
 
         print(f"\n[{i + 1}/{len(tracks)}] {name} "
-              f"({native_bpm:.1f} BPM, {duration_sec:.0f}s)")
+              f"({native_bpm:.1f} BPM, {duration_sec:.0f}s, LUFS gain {lufs_gain_db:+.1f} dB)")
 
         # --- First track ---
         if i == 0:
@@ -1485,6 +1558,16 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
     if target_duration_sec and len(mix) > target_duration_sec * 1000:
         mix = mix[: int(target_duration_sec * 1000)]
     mix = mix.fade_out(FADE_OUT_SEC * 1000)
+
+    # Bus limiter — final safety net for any constructive-sum peak that LUFS
+    # normalisation alone couldn't tame. Pedalboard's Limiter is transparent
+    # at small reductions, which is what we expect post-LUFS.
+    pre_peak = mix.max_dBFS
+    print(f"\nBus limiter (ceiling {BUS_LIMITER_CEILING_DB:+.1f} dBFS)…")
+    print(f"  Pre-limiter peak:  {pre_peak:+.2f} dBFS")
+    mix = _apply_bus_limiter(mix)
+    post_peak = mix.max_dBFS
+    print(f"  Post-limiter peak: {post_peak:+.2f} dBFS")
 
     print("\nTransition map:")
     for t in transitions:
