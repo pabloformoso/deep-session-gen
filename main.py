@@ -57,6 +57,15 @@ FADE_OUT_SEC = 5            # Fade-out at the very end of the mix
 SOFT_FADE_RATIO_THRESHOLD = 1.4
 SOFT_FADE_CROSSFADE_SEC = 24
 
+# Rubber Band crispness for time-stretching. 4 favours phase coherence
+# (smoother pads / fewer "watery" cymbals) at the cost of transient sharpness.
+# Genres dominated by hard transients can override to 5 or 6.
+RUBBERBAND_CRISPNESS_DEFAULT = 4
+RUBBERBAND_CRISPNESS_BY_GENRE = {
+    "techno": 5,
+    "cyberpunk": 5,
+}
+
 # Per-track loudness normalisation target (ITU-R BS.1770 integrated LUFS).
 # YouTube/Spotify/streaming target ~-14 LUFS for music; we go a touch quieter
 # so summed crossfade peaks stay safely below the bus limiter ceiling.
@@ -412,40 +421,46 @@ def _apply_crossfade_eq(segment: AudioSegment, role: str, key_distance: int) -> 
     return _numpy_to_segment(y_out, segment)
 
 
-def change_tempo(segment, factor):
+def _crispness_for_genre(genre: str | None) -> int:
+    """Look up Rubber Band crispness for a genre, falling back to default."""
+    if not genre:
+        return RUBBERBAND_CRISPNESS_DEFAULT
+    return RUBBERBAND_CRISPNESS_BY_GENRE.get(genre.lower(), RUBBERBAND_CRISPNESS_DEFAULT)
+
+
+def change_tempo(segment, factor, crispness: int = RUBBERBAND_CRISPNESS_DEFAULT):
     """Change playback tempo without altering pitch (key-preserving).
     Uses Rubber Band for high-quality time-stretching.
     factor > 1.0 = faster, < 1.0 = slower. Pitch stays the same.
 
-    Crispness 4 (default 5) trades transient sharpness for smoother phase
-    coherence — much better fit for lofi/ambient/cyberpunk pads where the
-    audible defect at high crispness is "watery" cymbals during the ramp.
-    Crispness 6 was the previous setting and over-emphasised transients.
+    crispness: Rubber Band -c flag. Lower = smoother phase, higher = sharper
+    transients. Default 4 fits pads/ambient; techno/cyberpunk override to 5.
     """
     if abs(factor - 1.0) < 0.001:
         return segment
     y = _segment_to_numpy(segment)
     stretched = pyrb.time_stretch(y, segment.frame_rate, factor,
-                                  rbargs={'-c': '4'})
+                                  rbargs={'-c': str(crispness)})
     return _numpy_to_segment(stretched, segment)
 
 
 change_speed = change_tempo
 
 
-def tempo_ramp(segment, native_bpm, from_bpm, to_bpm, steps=RAMP_STEPS):
+def tempo_ramp(segment, native_bpm, from_bpm, to_bpm, steps=RAMP_STEPS,
+               crispness: int = RUBBERBAND_CRISPNESS_DEFAULT):
     """Gradually change playback speed across a segment.
 
     The raw audio is at native_bpm. Playback starts at from_bpm and
     smoothly transitions to to_bpm over `steps` equal chunks.
     """
     if abs(from_bpm - to_bpm) < 0.5:
-        return change_speed(segment, from_bpm / native_bpm)
+        return change_speed(segment, from_bpm / native_bpm, crispness=crispness)
 
     chunk_ms = len(segment) // steps
     if chunk_ms < 50:
         avg_factor = ((from_bpm + to_bpm) / 2) / native_bpm
-        return change_speed(segment, avg_factor)
+        return change_speed(segment, avg_factor, crispness=crispness)
 
     result = AudioSegment.empty()
     for i in range(steps):
@@ -455,7 +470,7 @@ def tempo_ramp(segment, native_bpm, from_bpm, to_bpm, steps=RAMP_STEPS):
 
         start_ms = i * chunk_ms
         end_ms = (start_ms + chunk_ms) if i < steps - 1 else len(segment)
-        result += change_speed(segment[start_ms:end_ms], factor)
+        result += change_speed(segment[start_ms:end_ms], factor, crispness=crispness)
 
     return result
 
@@ -577,19 +592,28 @@ def detect_bpm(filepath, genre_folder=""):
     genre midpoint.
 
     Librosa frequently locks onto double-time (e.g. a 76 BPM lofi track with
-    busy hi-hats reads as 152 BPM). The previous implementation only halved
-    once when *outside* the genre range, which still let through values that
-    are inside the range but on the wrong octave (76 BPM range happens to
-    contain 152 if the range is wide). Now we generate a small ladder of
-    candidates (¼, ½, 1, 2, 4×) and pick the one closest to the genre
-    midpoint that lands in range. If none fit the range, we fall back to the
-    closest candidate to the midpoint and clamp.
+    busy hi-hats reads as 152 BPM). We generate a small ladder of candidates
+    (¼, ½, 1, 2, 4×) and pick the one closest to the genre midpoint that
+    lands in the genre range. If none fit, we surface the closest candidate
+    *without clamping* — clamping invents a value that downstream BPM-matching
+    treats as real and corrupts crossfade ratios. Genres without a known
+    range pass through the raw detection unchanged.
     """
     y, sr = librosa.load(filepath, sr=None, mono=True)
-    lo, hi = BPM_GENRE_RANGES.get(genre_folder.lower(), (60, 200))
-    midpoint = (lo + hi) / 2.0
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr, start_bpm=midpoint)
+    # Let librosa run blind — biasing start_bpm toward the genre midpoint
+    # would arrastrar raw_bpm toward the midpoint and weaken the octave
+    # ladder that follows. The midpoint is used only as the tie-breaker.
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     raw_bpm = float(np.squeeze(tempo))
+
+    genre_range = BPM_GENRE_RANGES.get(genre_folder.lower())
+    if genre_range is None:
+        print(f"  [BPM no-genre-range] {os.path.basename(filepath)}: "
+              f"genre '{genre_folder}' has no known BPM range — keeping raw {raw_bpm:.1f}")
+        return round(raw_bpm, 1)
+
+    lo, hi = genre_range
+    midpoint = (lo + hi) / 2.0
 
     # Octave ladder. ½ and 2× cover the common librosa confusion; ¼ and 4×
     # catch pathological cases (e.g. detected 304 BPM → real 76 BPM).
@@ -598,16 +622,15 @@ def detect_bpm(filepath, genre_folder=""):
     if in_range:
         bpm = min(in_range, key=lambda c: abs(c - midpoint))
     else:
-        # No octave lands in range — pick the closest candidate to midpoint
-        # and clamp it so we still produce a usable value.
+        # No octave lands in range — keep the closest candidate to midpoint
+        # but DO NOT clamp. Outliers (e.g. a 174 BPM track in a 120-160
+        # genre folder) must surface as their real BPM so build_mix can
+        # decide what to do with them; a clamped value silently lies.
         bpm = min(candidates, key=lambda c: abs(c - midpoint))
-        clamped = max(lo, min(hi, bpm))
-        if clamped != bpm:
-            print(
-                f"  [BPM clamp] {os.path.basename(filepath)}: "
-                f"raw={raw_bpm:.1f}, picked={bpm:.1f} → clamped to [{lo}, {hi}] = {clamped:.1f}"
-            )
-            bpm = clamped
+        print(
+            f"  [BPM out-of-range] {os.path.basename(filepath)}: "
+            f"raw={raw_bpm:.1f}, picked={bpm:.1f} (no octave fits [{lo}, {hi}])"
+        )
     if abs(bpm - raw_bpm) > 1.0:
         print(
             f"  [BPM octave] {os.path.basename(filepath)}: "
@@ -1398,7 +1421,8 @@ def _track_display_name(filepath):
     return os.path.splitext(os.path.basename(filepath))[0]
 
 
-def _adjust_outgoing_tail(mix, mix_bpm, trans_bpm, key_distance: int = 0):
+def _adjust_outgoing_tail(mix, mix_bpm, trans_bpm, key_distance: int = 0,
+                          crispness: int = RUBBERBAND_CRISPNESS_DEFAULT):
     """Ramp the tail of the current mix from mix_bpm toward trans_bpm."""
     if abs(mix_bpm - trans_bpm) < 0.5:
         return mix
@@ -1418,14 +1442,15 @@ def _adjust_outgoing_tail(mix, mix_bpm, trans_bpm, key_distance: int = 0):
         xfade_part = tail
 
     if len(ramp_part) > 0:
-        ramp_part = tempo_ramp(ramp_part, mix_bpm, mix_bpm, trans_bpm)
-    xfade_part = change_speed(xfade_part, trans_bpm / mix_bpm)
+        ramp_part = tempo_ramp(ramp_part, mix_bpm, mix_bpm, trans_bpm, crispness=crispness)
+    xfade_part = change_speed(xfade_part, trans_bpm / mix_bpm, crispness=crispness)
     xfade_part = _apply_crossfade_eq(xfade_part, "outgoing", key_distance)
 
     return pre_tail + ramp_part + xfade_part
 
 
-def _prepare_incoming(segment, native_bpm, trans_bpm, beats, duration_sec, key_distance: int = 0):
+def _prepare_incoming(segment, native_bpm, trans_bpm, beats, duration_sec, key_distance: int = 0,
+                      crispness: int = RUBBERBAND_CRISPNESS_DEFAULT):
     """Split and tempo-adjust the incoming track into three sections:
     1. Crossfade section  — at trans_bpm
     2. Ramp section       — gradual trans_bpm → native_bpm
@@ -1443,8 +1468,8 @@ def _prepare_incoming(segment, native_bpm, trans_bpm, beats, duration_sec, key_d
     body_part = segment[int(ramp_end * 1000) : int(body_end * 1000)]
 
     if abs(native_bpm - trans_bpm) > 0.5:
-        xfade_part = change_speed(xfade_part, trans_bpm / native_bpm)
-        ramp_part = tempo_ramp(ramp_part, native_bpm, trans_bpm, native_bpm)
+        xfade_part = change_speed(xfade_part, trans_bpm / native_bpm, crispness=crispness)
+        ramp_part = tempo_ramp(ramp_part, native_bpm, trans_bpm, native_bpm, crispness=crispness)
     xfade_part = _apply_crossfade_eq(xfade_part, "incoming", key_distance)
 
     return xfade_part + ramp_part + body_part
@@ -1488,6 +1513,15 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
         stretch_ratio = max(mix_bpm, native_bpm) / min(mix_bpm, native_bpm) if min(mix_bpm, native_bpm) > 0 else 1.0
         soft_fade = stretch_ratio > SOFT_FADE_RATIO_THRESHOLD
 
+        # Soft-fade needs the incoming track to be at least one full overlap
+        # plus a body cut: shorter than that and the incoming_body slice would
+        # invert. Fall back to meet-in-middle so we still get a valid mix.
+        soft_fade_min_sec = SOFT_FADE_CROSSFADE_SEC + CROSSFADE_SEC
+        if soft_fade and duration_sec < soft_fade_min_sec:
+            print(f"  [soft-fade skipped] incoming track only {duration_sec:.0f}s "
+                  f"(< {soft_fade_min_sec}s required) — falling back to meet-in-middle")
+            soft_fade = False
+
         if soft_fade:
             strategy = f"soft-fade @{SOFT_FADE_CROSSFADE_SEC}s (no stretch)"
         elif bpm_diff > BPM_MATCH_THRESHOLD:
@@ -1502,6 +1536,10 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
             tracks[i - 1].get("camelot_key", ""),
             track.get("camelot_key", "")
         )
+
+        # Rubber Band crispness: incoming track's genre governs the transition,
+        # since both segments are stretched toward the same trans_bpm.
+        crispness = _crispness_for_genre(track.get("genre"))
 
         if soft_fade:
             # Both tracks stay at native BPM; longer overlap absorbs the tempo
@@ -1521,17 +1559,20 @@ def build_mix(tracks, target_duration_sec=TARGET_DURATION_SEC):
             crossfade_ms = min(xfade_ms, len(mix), len(incoming))
         else:
             # --- Adjust outgoing tail ---
-            mix = _adjust_outgoing_tail(mix, mix_bpm, trans_bpm, key_distance=key_dist)
+            mix = _adjust_outgoing_tail(mix, mix_bpm, trans_bpm, key_distance=key_dist,
+                                        crispness=crispness)
             # --- Prepare incoming track ---
             incoming = _prepare_incoming(
-                segment, native_bpm, trans_bpm, beats, duration_sec, key_distance=key_dist
+                segment, native_bpm, trans_bpm, beats, duration_sec, key_distance=key_dist,
+                crispness=crispness,
             )
             crossfade_ms = min(CROSSFADE_SEC * 1000, len(mix), len(incoming))
 
         # Record transition timestamp (where the crossfade begins)
         track_start_sec = (len(mix) - crossfade_ms) / 1000.0
-        if stretch_ratio > 1.5 and not soft_fade:
-            print(f"  [STRETCH WARNING] Ratio {stretch_ratio:.2f}× ({mix_bpm:.1f} → {native_bpm:.1f} BPM)")
+        if stretch_ratio > 1.5:
+            suffix = " (soft-faded)" if soft_fade else ""
+            print(f"  [STRETCH WARNING] Ratio {stretch_ratio:.2f}× ({mix_bpm:.1f} → {native_bpm:.1f} BPM){suffix}")
         transitions.append({"name": name, "start_sec": track_start_sec, "stretch_ratio": round(stretch_ratio, 3)})
 
         # --- Crossfade ---
