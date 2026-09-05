@@ -1,16 +1,16 @@
 {
   "ambient": {
     "files": [
-      "LoFi-Slow_Oxide-b6be7470-9ba8-433b-95c6-935d782d6f8a.wav",
       "LoFI_2-Ambient_Margin-5ef58920-f8a3-4d61-9176-dd9110aca3a5.wav",
       "LoFI_2-Ambient_Margin_bis-caa7c8b3-9dbf-49f8-99d5-5e7e96cd74e3.wav",
       "LoFI_2-Cloud_Pages_Turning-d91ccfc9-94a1-4b54-b0d9-b84a92a54864.wav",
-      "LoFI_2-Cloud_Pages_Turning-e0e77ac4-a4fc-408d-8b31-700f03008279.wav"
+      "LoFI_2-Cloud_Pages_Turning-e0e77ac4-a4fc-408d-8b31-700f03008279.wav",
+      "LoFI_2-Deep_Focus_Flicker-39847a51-d2b3-431f-aaa5-6c7ac8a3a660.wav"
     ],
     "norm_target_lufs": -20.0,
     "centroid_hz": {
-      "min": 797.9,
-      "max": 2123.1
+      "min": 669.3,
+      "max": 1201.3
     },
     "tilt_db_per_oct": {
       "min": -12.57,
@@ -19,6 +19,50 @@
     "advisory_lufs": {
       "min": -19.8,
       "max": -17.9
+    }
+  },
+  "aural": {
+    "files": [
+      "Aural-Afterglow_Cradle (1).wav",
+      "Aural-Afterglow_Cradle (2).wav",
+      "Aural-Afterglow_Cradle (3).wav",
+      "Aural-Afterglow_Cradle (4).wav",
+      "Aural-Afterglow_Cradle (5).wav"
+    ],
+    "norm_target_lufs": -20.0,
+    "centroid_hz": {
+      "min": 1224.9,
+      "max": 1891.8
+    },
+    "tilt_db_per_oct": {
+      "min": -7.32,
+      "max": -5.99
+    },
+    "advisory_lufs": {
+      "min": -19.6,
+      "max": -17.6
+    }
+  },
+  "cocktail": {
+    "files": [
+      "Cocktail_House-118_BPM_Pads-b564188b-2ba3-47f9-a483-58914077d763.wav",
+      "Cocktail_House-Velvet_Afterglow-016a38e5-4d83-42e6-95dd-f031544baa88.wav",
+      "Cocktail_House-Velvet_Afterglow-03c29c3c-e6c4-4446-9a18-29f03905ef48.wav",
+      "Cocktail_House-Velvet_Afterglow-136c7db3-5ecf-4e68-8532-8b5d3248bd40.wav",
+      "Cocktail_House-Velvet_Afterglow-1b28d855-9415-4f45-babc-1a429b8d890d.wav"
+    ],
+    "norm_target_lufs": -20.0,
+    "centroid_hz": {
+      "min": 2994.4,
+      "max": 4841.1
+    },
+    "tilt_db_per_oct": {
+      "min": -5.06,
+      "max": -3.25
+    },
+    "advisory_lufs": {
+      "min": -17.7,
+      "max": -16.7
     }
   },
   "deep": {
@@ -43,18 +87,40 @@
       "max": -16.9
     }
   },
-  "lofi": {
+  "healing": {
     "files": [
-      "LoFi-Slow_Oxide-b6be7470-9ba8-433b-95c6-935d782d6f8a.wav",
-      "LoFI_2-Ambient_Margin-5ef58920-f8a3-4d61-9176-dd9110aca3a5.wav",
-      "LoFI_2-Ambient_Margin_bis-caa7c8b3-9dbf-49f8-99d5-5e7e96cd74e3.wav",
-      "LoFI_2-Cloud_Pages_Turning-d91ccfc9-94a1-4b54-b0d9-b84a92a54864.wav",
-      "LoFI_2-Cloud_Pages_Turning-e0e77ac4-a4fc-408d-8b31-700f03008279.wav"
+      "AChillE.wav",
+      "Healing-Amber_Bloom.wav",
+      "Healing-Amber_Drift.wav",
+      "Healing-Amber_Mist.wav",
+      "Healing-Amber_Rest.wav"
     ],
     "norm_target_lufs": -20.0,
     "centroid_hz": {
-      "min": 797.9,
-      "max": 2123.1
+      "min": 579.3,
+      "max": 3357.7
+    },
+    "tilt_db_per_oct": {
+      "min": -9.29,
+      "max": -4.97
+    },
+    "advisory_lufs": {
+      "min": -20.8,
+      "max": -18.4
+    }
+  },
+  "lofi": {
+    "files": [
+      "LoFI_2-Ambient_Margin-5ef58920-f8a3-4d61-9176-dd9110aca3a5.wav",
+      "LoFI_2-Ambient_Margin_bis-caa7c8b3-9dbf-49f8-99d5-5e7e96cd74e3.wav",
+      "LoFI_2-Cloud_Pages_Turning-d91ccfc9-94a1-4b54-b0d9-b84a92a54864.wav",
+      "LoFI_2-Cloud_Pages_Turning-e0e77ac4-a4fc-408d-8b31-700f03008279.wav",
+      "LoFI_2-Deep_Focus_Flicker-39847a51-d2b3-431f-aaa5-6c7ac8a3a660.wav"
+    ],
+    "norm_target_lufs": -20.0,
+    "centroid_hz": {
+      "min": 669.3,
+      "max": 1201.3
     },
     "tilt_db_per_oct": {
       "min": -12.57,
@@ -63,6 +129,50 @@
     "advisory_lufs": {
       "min": -19.8,
       "max": -17.9
+    }
+  },
+  "soul": {
+    "files": [
+      "SoulfulJazz-After_Hours_Ledger-5cfbfb0e-f771-4af3-97b7-eea817fa6cd2.wav",
+      "SoulfulJazz-After_Hours_Ledger-bc8b0943-427b-4bb6-8a97-5342edbaf035.wav",
+      "SoulfulJazz-Bajo_el_Jazm\u00edn-8897f5d4-78f7-4869-b772-6099b6f4e8be.wav",
+      "SoulfulJazz-Bajo_el_Jazm\u00edn-da25108e-d29f-4c07-95c6-e97a5ab63800.wav",
+      "SoulfulJazz-Bajo_la_Luna_Azul-4a0ba5c6-0c66-4de1-8df5-5586a8a0e387.wav"
+    ],
+    "norm_target_lufs": -20.0,
+    "centroid_hz": {
+      "min": 2965.4,
+      "max": 3645.7
+    },
+    "tilt_db_per_oct": {
+      "min": -6.16,
+      "max": -4.97
+    },
+    "advisory_lufs": {
+      "min": -18.6,
+      "max": -17.9
+    }
+  },
+  "synthware": {
+    "files": [
+      "Synthware-Binary_Storm-127df804-c4fa-47ad-b52d-145922aadf4f.wav",
+      "Synthware-Binary_Storm-187fec22-00b3-460d-b9d9-c83a0ae074a1.wav",
+      "Synthware-Binary_Storm-df796c94-45c8-4b84-8915-fc00d23c3984.wav",
+      "Synthware-Binary_Storm-fd84f6ef-9ab2-41ef-8b97-46ec6e277b0e.wav",
+      "Synthware-Cassette_Ghost-2afb5ea6-4c93-47df-9255-534f83db6e69.wav"
+    ],
+    "norm_target_lufs": -20.0,
+    "centroid_hz": {
+      "min": 2595.4,
+      "max": 4725.2
+    },
+    "tilt_db_per_oct": {
+      "min": -11.94,
+      "max": -3.98
+    },
+    "advisory_lufs": {
+      "min": -20.0,
+      "max": -17.8
     }
   }
 }

@@ -289,10 +289,24 @@ BPM_GENRE_RANGES = {
     # arbitrarily. Without this range these tracks get tagged at techno
     # tempo and poison BPM matching for the whole set.
     "healing": (50, 100),
+    # Downtempo electronic: 90-115 in practice. One octave wide (hi == 2*lo)
+    # so only one rung of the octave ladder can qualify — the rule that keeps
+    # librosa from storing 2x the real pulse on soft, beatless intros.
+    "chillout": (60, 120),
 }
 
 # Default themes per genre folder for smart-generated sessions
 GENRE_THEMES = {
+    "chillout": {
+        "artwork_style": "organic-zen",
+        "title_color": "#DCE7E3",
+        "title_stroke_color": "#2F4440",
+        "bg_color": [14, 20, 19],
+        "waveform_color": [150, 190, 180],
+        "particle_color": [180, 215, 205],
+        "bg_darken": 0.85,
+        "title_font_size": 36,
+    },
     "lofi - ambient": {
         "artwork_style": "anime",
         "title_color": "#E8D5B7",

@@ -106,6 +106,7 @@ _BPM_GENRE_RANGES = {
     # fallback flattens every track to near-zero energy and the arranger
     # can no longer tell a drone from a build.
     "healing": (50, 100),
+    "chillout": (60, 120),
 }
 
 
@@ -1119,6 +1120,16 @@ GENRE_THEMES: dict[str, dict] = {
         "particle_color": [240, 180, 100],
         "bg_darken": 0.8,
         "title_font_size": 32,
+    },
+    "chillout": {
+        "artwork_style": "organic-zen",
+        "title_color": "#DCE7E3",
+        "title_stroke_color": "#2F4440",
+        "bg_color": [14, 20, 19],
+        "waveform_color": [150, 190, 180],
+        "particle_color": [180, 215, 205],
+        "bg_darken": 0.85,
+        "title_font_size": 36,
     },
     "healing": {
         "artwork_style": "healing-aura",
