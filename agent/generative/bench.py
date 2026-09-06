@@ -30,9 +30,26 @@ from .render_audio import SR, render_audio
 from .spec import PatternSpec
 
 GENRE_FOLDERS = {
+    # Bench key -> catalog folder. The key must match the folder's LEADING
+    # text, because `_reference_genre` resolves a folder by that rule (see
+    # web/backend/generator.py) — "cocktail" claims "cocktail house".
+    #
+    # Extended 2026-09-05 from 2 folders to 7, once the catalog had 512 tracks
+    # to measure. Before that a genre with no references made `Score` answer
+    # "no verdict", which reads as a broken button rather than as a missing
+    # measurement.
     "lofi": "lofi - ambient",
     "ambient": "lofi - ambient",
     "deep": "deep house",
+    "healing": "Healing",
+    "aural": "aural",
+    "cocktail": "cocktail house",
+    "soul": "soul jazz",
+    "synthware": "synthware",
+    # "chillout" is deliberately NOT here yet. `test_catalog_references_
+    # committed_and_complete` requires every key in this map to have measured
+    # references, and a genre with no WAVs cannot have any. Add it in the same
+    # change that gives it music, and re-run scripts/extract_quality_references.
 }
 
 REFERENCES_PATH = Path(__file__).parent / "quality_references.json"
