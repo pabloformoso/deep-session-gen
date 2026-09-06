@@ -54,6 +54,7 @@ import {
 import { usePlayer, type Playable } from "@/lib/player";
 import { Btn, Crumb } from "./primitives";
 import { Banner, Spinner } from "./feedback";
+import { Scrubber } from "./Scrubber";
 
 /** G3 — the three edits, in the operator's words (API spec §3.3). */
 const EDIT_MODES: ReadonlyArray<[EditMode, string, string]> = [
@@ -330,6 +331,14 @@ export function TakeRow({
           {take.result_parse_error && (
             <div className="font-mono text-[10px] text-warn mt-1">
               metadata unreadable — audio still plays
+            </div>
+          )}
+          {/* Only for the take actually playing: a bar on every row would be
+              four dead controls and one live one. Nobody listens to three
+              minutes to judge a take — they jump to the middle. */}
+          {active && (
+            <div className="mt-2">
+              <Scrubber fallbackDuration={duration} label={`Seek ${label}`} />
             </div>
           )}
         </div>
