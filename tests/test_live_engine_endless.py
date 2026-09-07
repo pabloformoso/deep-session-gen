@@ -24,6 +24,7 @@ from agent.live_engine import (
     LiveEngineBrowser,
     _autoplay_pick,
     _camelot_distance,
+    _endless_pick,
     _recent_window_ids,
 )
 
@@ -244,6 +245,111 @@ def test_autoplay_pick_allow_repeats_noop_when_fresh_candidate_exists():
 # ---------------------------------------------------------------------------
 # append_track — Browser engine
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# _endless_pick — the tier ladder that keeps a 24/7 set out of one genre
+#
+# Regression cover for the 2026-09-07 live finding: an 18 h endless set
+# played 352 tracks drawn from exactly the 48 'Healing' entries while
+# 465 other catalog tracks were never touched, because every recycle
+# tier inside _autoplay_pick is in_genre and the genre is re-read from
+# the track the picker itself chose on the previous lap.
+# ---------------------------------------------------------------------------
+
+def test_endless_pick_prefers_unheard_in_genre():
+    catalog = [
+        _track("a", genre_folder="healing", bpm=70),
+        _track("b", genre_folder="techno", bpm=71),
+    ]
+    current = _track("playing", bpm=70, genre_folder="healing")
+    pick, tier = _endless_pick(current, catalog, "healing", set())
+    assert tier == "in_genre"
+    assert pick is not None and pick["id"] == "a"
+
+
+def test_endless_pick_widens_out_of_genre_before_recycling():
+    """The bug: this used to recycle 'a' instead of ever reaching 'b'."""
+    catalog = [
+        _track("a", genre_folder="healing", bpm=70),
+        _track("b", genre_folder="lofi - ambient", bpm=72),
+    ]
+    current = _track("playing", bpm=70, genre_folder="healing")
+    # The whole healing genre has been heard; the rest of the catalog has not.
+    pick, tier = _endless_pick(current, catalog, "healing", {"a"})
+    assert tier == "widened"
+    assert pick is not None and pick["id"] == "b"
+
+
+def test_endless_pick_widened_tier_still_ranks_by_musical_distance():
+    """Widening must cross to the nearest neighbour, not to an arbitrary track."""
+    catalog = [
+        _track("heard", genre_folder="healing", bpm=70),
+        _track("far", genre_folder="techno", bpm=140, camelot_key="3B"),
+        _track("near", genre_folder="lofi - ambient", bpm=72, camelot_key="8A"),
+    ]
+    current = _track("playing", bpm=70, genre_folder="healing", camelot_key="8A")
+    pick, tier = _endless_pick(current, catalog, "healing", {"heard"})
+    assert tier == "widened"
+    assert pick is not None and pick["id"] == "near"
+
+
+def test_endless_pick_recycles_only_once_whole_catalog_is_heard():
+    catalog = [
+        _track("a", genre_folder="healing", bpm=70),
+        _track("b", genre_folder="lofi - ambient", bpm=72),
+    ]
+    current = _track("playing", bpm=70, genre_folder="healing")
+    pick, tier = _endless_pick(current, catalog, "healing", {"a", "b"})
+    assert tier == "recycled"
+    assert pick is not None and pick["id"] in {"a", "b"}
+
+
+def test_endless_pick_recycle_tier_is_not_locked_to_the_genre():
+    """Even the last-resort tier draws on the whole catalog, not 1/10th of it."""
+    catalog = [_track("only", genre_folder="lofi - ambient", bpm=72)]
+    current = _track("playing", bpm=70, genre_folder="healing")
+    pick, tier = _endless_pick(current, catalog, "healing", {"only"})
+    assert tier == "recycled"
+    assert pick is not None and pick["id"] == "only"
+
+
+def test_endless_pick_reports_none_on_empty_catalog():
+    current = _track("playing", bpm=70, genre_folder="healing")
+    pick, tier = _endless_pick(current, [], "healing", set())
+    assert pick is None and tier == "none"
+
+
+def test_endless_pick_never_ids_survive_every_tier():
+    """A queued track must not be picked, not even by the recycle tier."""
+    catalog = [_track("queued", genre_folder="healing", bpm=70)]
+    current = _track("playing", bpm=70, genre_folder="healing")
+    pick, tier = _endless_pick(
+        current, catalog, "healing", {"queued"}, never_ids={"queued"}
+    )
+    assert pick is None and tier == "none"
+
+
+def test_endless_pick_escapes_a_fully_played_genre_across_many_laps():
+    """The live symptom, in miniature: a small genre must not trap the set."""
+    catalog = [_track(f"h{i}", genre_folder="healing", bpm=70) for i in range(3)]
+    catalog += [_track(f"o{i}", genre_folder="lofi - ambient", bpm=71) for i in range(3)]
+    current = _track("playing", bpm=70, genre_folder="healing")
+    played: set[str] = set()
+    seen_genres = set()
+    for _ in range(6):
+        # Faithful to the caller: the genre is re-read from whatever is
+        # playing, which is exactly what welded the door shut in prod.
+        pick, tier = _endless_pick(
+            current, catalog, current.get("genre_folder"), played
+        )
+        assert pick is not None, "the ladder must always find a continuation"
+        played.add(pick["id"])
+        seen_genres.add(pick["genre_folder"])
+        current = pick
+    # All six tracks consumed exactly once — no repeats, both genres reached.
+    assert len(played) == 6
+    assert seen_genres == {"healing", "lofi - ambient"}
+
 
 def test_append_track_adds_to_playlist_and_returns_position():
     rec = _Recorder()
