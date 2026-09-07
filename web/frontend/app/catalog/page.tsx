@@ -19,6 +19,7 @@ import { Shell } from "@/components/ember/Shell";
 import { Crumb, Stripe } from "@/components/ember/primitives";
 import type { Track } from "@/lib/types";
 import { GenerateSongs } from "@/components/ember/GenerateSongs";
+import { Waveform } from "@/components/ember/Waveform";
 
 function formatDuration(sec: number | null | undefined) {
   if (!sec) return "—";
@@ -400,7 +401,8 @@ function TrackDetail({
   onClearRating: (trackId: string) => void;
 }) {
   const suno = track.suno ?? {};
-  const { play } = usePlayer();
+  const { play, currentTrack } = usePlayer();
+  const isThisPlaying = currentTrack?.id === track.id;
   const [addOpen, setAddOpen] = useState(false);
   return (
     <div
@@ -442,6 +444,20 @@ function TrackDetail({
         ) : (
           <Stripe alpha={0.18} className="w-full aspect-square mb-6 border-line2" />
         )}
+
+          {/* The catalog's tracks DO carry `waveform_peaks` — computed at
+              build time — and until now nothing drew them outside /live.
+              Only while this track is the one playing: a waveform whose
+              playhead cannot move is a picture, not a control. */}
+          {isThisPlaying && (
+            <div className="mb-4">
+              <Waveform
+                peaks={track.waveform_peaks}
+                fallbackDuration={track.duration_sec ?? null}
+                label={`Seek ${track.display_name}`}
+              />
+            </div>
+          )}
 
         <div className="flex gap-2 mb-6 relative">
           <button

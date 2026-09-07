@@ -55,6 +55,7 @@ import { usePlayer, type Playable } from "@/lib/player";
 import { Btn, Crumb } from "./primitives";
 import { Banner, Spinner } from "./feedback";
 import { Scrubber } from "./Scrubber";
+import { Waveform } from "./Waveform";
 
 /** G3 — the three edits, in the operator's words (API spec §3.3). */
 const EDIT_MODES: ReadonlyArray<[EditMode, string, string]> = [
@@ -337,8 +338,12 @@ export function TakeRow({
               four dead controls and one live one. Nobody listens to three
               minutes to judge a take — they jump to the middle. */}
           {active && (
-            <div className="mt-2">
-              <Scrubber fallbackDuration={duration} label={`Seek ${label}`} />
+            <div className="mt-2 flex flex-col gap-1">
+              {/* A take has no `waveform_peaks` — it has not been through the
+                  ingest — so the bars are the synthetic pattern `/live` uses.
+                  The heights are decoration there; the POSITION is real. */}
+              <Waveform fallbackDuration={duration} label={`Seek ${label}`} />
+              <Scrubber fallbackDuration={duration} label={`Seek ${label} precisely`} />
             </div>
           )}
         </div>
