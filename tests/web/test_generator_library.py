@@ -32,6 +32,8 @@ from urllib.parse import quote
 import httpx
 import pytest
 
+from agent.tools import GENRE_STYLE_PROMPTS
+
 from web.backend import acestep_client as ac
 from web.backend import db, generator
 from web.backend.ws_manager import ws_manager
@@ -302,7 +304,8 @@ def test_the_recorded_request_is_the_actual_outgoing_payload(
 
     request = _feed(auth_client)[0]["request"]
 
-    assert request["prompt"] == "dark melodic techno, hypnotic"
+    assert request["prompt"].startswith(GENRE_STYLE_PROMPTS["techno"])
+    assert request["prompt"].endswith("dark melodic techno, hypnotic")
     assert request["audio_format"] == "wav"       # the catalog contract
     assert request["thinking"] is True
     assert request["bpm"] == 140                  # the window centre, pinned

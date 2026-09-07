@@ -107,7 +107,93 @@ _BPM_GENRE_RANGES = {
     # can no longer tell a drone from a build.
     "healing": (50, 100),
     "chillout": (60, 120),
+    # Mirrors main.BPM_GENRE_RANGES — see the reasoning there.
+    "aural": (48, 96),
+    "synthware": (85, 170),
 }
+
+
+#: What each genre SOUNDS like, in the words ACE-Step understands.
+#:
+#: The gap this closes: ``genre_folder`` used to be a filing decision
+#: only — it picked the default BPM and chose the destination folder,
+#: and then ``_release_payload`` sent ACE the user's free text and
+#: nothing else. Ask for "a calm track" under `healing` and the model
+#: was told "a calm track" and a tempo; nothing carried healing's actual
+#: identity. The takes came back off-genre and could not be promoted
+#: into the catalog, which is the whole point of generating them
+#: (reported 2026-09-07).
+#:
+#: Each entry is a short descriptor composed AHEAD of the user's prompt,
+#: so the genre frames the request and the user's words specialise it.
+#: Grounded in what each folder actually holds — measured BPM spread,
+#: the spectral bands in ``agent/generative/quality_references.json``,
+#: and the track names — not invented.
+#:
+#: Deliberately NOT mirrored into main.py: this is the generator's, and
+#: a third copy of genre knowledge is exactly the drift CLAUDE.md warns
+#: about. The web layer imports it from here, as it already does for
+#: ``_BPM_GENRE_RANGES``.
+#:
+#: A genre missing from this map degrades to the bare user prompt — the
+#: old behaviour — so an unlisted folder still generates.
+GENRE_STYLE_PROMPTS: dict[str, str] = {
+    "lofi - ambient": (
+        "lo-fi ambient: warm tape saturation, soft dusty drums, mellow "
+        "jazz-tinged chords, gentle vinyl crackle, unhurried and hazy"
+    ),
+    "lofi": (
+        "lo-fi ambient: warm tape saturation, soft dusty drums, mellow "
+        "jazz-tinged chords, gentle vinyl crackle, unhurried and hazy"
+    ),
+    "healing": (
+        "healing meditation music: slow binaural drones, breathy flutes "
+        "and soft chimes, long reverb tails, no percussion, deeply calm "
+        "and spacious"
+    ),
+    "aural": (
+        "ethereal beatless ambient: weightless evolving pads, submarine "
+        "and cosmic textures, very long reverb, no drums, dark and "
+        "spacious with slow swells"
+    ),
+    "synthware": (
+        "retro synth electro: analog synth leads, acid bassline, crisp "
+        "electro drums, glitch artefacts and tape hiss, neon and driving"
+    ),
+    "deep house": (
+        "deep house: rolling four-on-the-floor kick, warm sub bass, "
+        "smooth pad chords, subtle percussion, hypnotic late-night groove"
+    ),
+    "cocktail house": (
+        "cocktail lounge house: laid-back nu-disco groove, brushed "
+        "percussion, warm Rhodes and muted guitar, sophisticated and "
+        "unhurried"
+    ),
+    "soul jazz": (
+        "soul jazz: live drums with brushes, upright bass walking lines, "
+        "Rhodes and Hammond organ, muted trumpet or sax, smoky and warm"
+    ),
+    "chillout": (
+        "downtempo chillout: relaxed broken beat, mellow synth pads, "
+        "soft bass, airy and melodic"
+    ),
+    "techno": (
+        "techno: driving four-on-the-floor kick, hypnotic sequenced "
+        "synths, industrial textures, relentless and dark"
+    ),
+    "cyberpunk": (
+        "cyberpunk electronic: gritty synth arpeggios, distorted bass, "
+        "industrial percussion, neon-noir and menacing"
+    ),
+}
+
+
+def genre_style_prompt(genre_key: str) -> str | None:
+    """Style descriptor for ``genre_key``, or ``None`` when unlisted.
+
+    Lower-cases and trims so callers can pass a raw ``genre_folder``.
+    """
+    return GENRE_STYLE_PROMPTS.get((genre_key or "").strip().lower())
 
 
 def _bpm_diff_bucket(diff: float) -> str:
@@ -1130,6 +1216,27 @@ GENRE_THEMES: dict[str, dict] = {
         "particle_color": [180, 215, 205],
         "bg_darken": 0.85,
         "title_font_size": 36,
+    },
+    # Mirrors main.GENRE_THEMES exactly — _get_session_theme applies THIS
+    # copy as the top layer at render time, so a drifted value here does
+    # not degrade, it silently overrides the canonical theme.
+    "aural": {
+        "artwork_style": "abstract",
+        "title_color": "#8FD8F0",
+        "title_stroke_color": "#07202C",
+        "bg_color": [6, 16, 26],
+        "waveform_color": [143, 216, 240],
+        "particle_color": [190, 232, 248],
+        "bg_darken": 0.8,
+    },
+    "synthware": {
+        "artwork_style": "dark-techno",
+        "title_color": "#F45BD0",
+        "title_stroke_color": "#1A0322",
+        "bg_color": [18, 4, 24],
+        "waveform_color": [244, 91, 208],
+        "particle_color": [120, 240, 232],
+        "bg_darken": 0.4,
     },
     "healing": {
         "artwork_style": "healing-aura",

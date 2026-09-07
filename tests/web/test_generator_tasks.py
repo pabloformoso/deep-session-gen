@@ -16,6 +16,8 @@ from urllib.parse import quote
 import httpx
 import pytest
 
+from agent.tools import GENRE_STYLE_PROMPTS
+
 from web.backend import acestep_client as ac
 from web.backend import generator
 from web.backend.ws_manager import ws_manager
@@ -381,7 +383,11 @@ def test_release_fills_the_contract_defaults(auth_client, ace_on, monkeypatch):
     assert payload["batch_size"] == 2
     assert payload["vocal_language"] == "en"
     assert payload["lyrics"] == ""               # empty = instrumental
-    assert payload["prompt"] == "dark melodic techno, hypnotic"
+    # v3.10.1 — the genre now reaches ACE as SOUND: its style descriptor
+    # frames the request and the user's words specialise it. Asserting
+    # both ends keeps the ORDER guarded, which is the part that matters.
+    assert payload["prompt"].startswith(GENRE_STYLE_PROMPTS["techno"])
+    assert payload["prompt"].endswith("dark melodic techno, hypnotic")
     assert "key_scale" not in payload            # omitted, LM completes it
 
 
@@ -441,10 +447,12 @@ def test_release_accepts_a_catalog_genre_with_no_bpm_window(
     it does not know still generates, just without a server-pinned bpm.
     """
     calls = _install_ace(monkeypatch, _box())
-    monkeypatch.setattr(generator, "_catalog_genres", lambda: {"aural"})
+    # NOT aural/synthware — both gained a window on 2026-09-07. This
+    # test is about the mechanism, so it needs a genre that has none.
+    monkeypatch.setattr(generator, "_catalog_genres", lambda: {"free jazz"})
 
     r = auth_client.post(
-        "/api/generator/tasks", json={**_BODY, "genre_folder": "aural"}
+        "/api/generator/tasks", json={**_BODY, "genre_folder": "free jazz"}
     )
 
     assert r.status_code == 200

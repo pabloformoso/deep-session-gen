@@ -293,6 +293,20 @@ BPM_GENRE_RANGES = {
     # so only one rung of the octave ladder can qualify — the rule that keeps
     # librosa from storing 2x the real pulse on soft, beatless intros.
     "chillout": (60, 120),
+    # Aural — beatless ethereal ambient (drones, submarine/cosmic pads,
+    # long reverb tails). 179 catalog tracks sat here with NO range at
+    # all until 2026-09-07: their raw detections were stored verbatim,
+    # which is the exact poisoning this table exists to prevent, and it
+    # also barred the genre from ACE generation (a genre with no window
+    # is not on the generator's allow-list). Measured spread is 42-95
+    # with the mass at 57; 48->96 is one octave (hi == 2*lo) and holds
+    # the median comfortably inside, so the sub-48 readings resolve as
+    # the half-time detections they are.
+    "aural": (48, 96),
+    # Synthware — retro electro / acid / glitch with analog-tape grit.
+    # Measured 65-164, mass at 115. 85->170 is one octave and covers the
+    # p10..max span; the 65 floor is a half-time read of ~130.
+    "synthware": (85, 170),
 }
 
 # Default themes per genre folder for smart-generated sessions
@@ -394,6 +408,30 @@ GENRE_THEMES = {
     # fights the cool high-key stillness this genre is going for.
     # ``bg_darken`` is high (0.85) because the artwork is deliberately
     # bright — without it the pale backdrop swallows the title.
+    # Aural — cold, deep, weightless. Uses the existing 'abstract' plate
+    # rather than a new one: an unknown artwork_style falls back to
+    # abstract SILENTLY, so pointing at it explicitly says the choice was
+    # made, not defaulted.
+    "aural": {
+        "artwork_style": "abstract",
+        "title_color": "#8FD8F0",
+        "title_stroke_color": "#07202C",
+        "bg_color": [6, 16, 26],
+        "waveform_color": [143, 216, 240],
+        "particle_color": [190, 232, 248],
+        "bg_darken": 0.8,
+    },
+    # Synthware — neon, glitch, tape. Shares the dark-techno plate with
+    # techno/cyberpunk, which is where its visual language already lives.
+    "synthware": {
+        "artwork_style": "dark-techno",
+        "title_color": "#F45BD0",
+        "title_stroke_color": "#1A0322",
+        "bg_color": [18, 4, 24],
+        "waveform_color": [244, 91, 208],
+        "particle_color": [120, 240, 232],
+        "bg_darken": 0.4,
+    },
     "healing": {
         "artwork_style": "healing-aura",
         "title_color": "#9FE0D0",

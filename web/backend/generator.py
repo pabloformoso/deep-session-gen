@@ -373,7 +373,37 @@ class GenerationRequest(BaseModel):
         return self
 
 
-def _release_payload(req: GenerationRequest, bpm: int | None) -> dict[str, Any]:
+#: ACE's prompt ceiling. The composed prompt is trimmed to it rather
+#: than rejected: a long user prompt must never turn into a 422.
+_ACE_PROMPT_MAX = 4000
+
+
+def _compose_prompt(user_prompt: str, genre_key: str) -> str:
+    """Frame the user's prompt with the genre's style descriptor.
+
+    ``genre_folder`` used to reach ACE only as a BPM default and a
+    destination folder — the model was never told what the genre sounds
+    like, so takes came back off-genre and could not be promoted into
+    the catalog. The descriptor goes FIRST (it frames) and the user's
+    words follow (they specialise).
+
+    Degrades to the bare prompt for a genre with no descriptor, so an
+    unlisted folder keeps generating exactly as it did.
+    """
+    from agent.tools import genre_style_prompt  # noqa: PLC0415
+
+    user = (user_prompt or "").strip()
+    style = genre_style_prompt(genre_key)
+    if not style:
+        return user
+    if not user:
+        return style
+    return f"{style}. {user}"[:_ACE_PROMPT_MAX]
+
+
+def _release_payload(
+    req: GenerationRequest, bpm: int | None, genre_key: str = ""
+) -> dict[str, Any]:
     """Body for ``POST /release_task`` — the server's defaults applied.
 
     ``audio_format`` and ``thinking`` are pinned here (catalog contract +
@@ -381,7 +411,7 @@ def _release_payload(req: GenerationRequest, bpm: int | None) -> dict[str, Any]:
     genre with no window falls back to the LM instead of being refused.
     """
     payload: dict[str, Any] = {
-        "prompt": req.prompt.strip(),
+        "prompt": _compose_prompt(req.prompt, genre_key),
         "lyrics": req.lyrics,
         "audio_duration": req.audio_duration,
         "vocal_language": req.vocal_language.strip(),
@@ -605,7 +635,7 @@ class EditRequest(BaseModel):
 
 
 def _edit_payload(
-    req: EditRequest, src_audio_path: str, bpm: int | None
+    req: EditRequest, src_audio_path: str, bpm: int | None, genre_key: str = ""
 ) -> dict[str, Any]:
     """Body for ``POST /release_task`` in edit form (spec §3.3).
 
@@ -619,8 +649,9 @@ def _edit_payload(
         "audio_format": CATALOG_AUDIO_FORMAT,
         "thinking": True,
     }
-    if req.prompt and req.prompt.strip():
-        payload["prompt"] = req.prompt.strip()
+    composed = _compose_prompt(req.prompt or "", genre_key)
+    if composed:
+        payload["prompt"] = composed
     if bpm is not None:
         payload["bpm"] = bpm
 
@@ -1188,7 +1219,7 @@ async def create_generation_task(
             flush=True,
         )
 
-    payload = _release_payload(req, bpm)
+    payload = _release_payload(req, bpm, genre_key)
     try:
         released = await client.release_task(payload)
     except (acestep_client.AceStepDisabled, acestep_client.AceStepUnavailable) as exc:
@@ -1616,6 +1647,9 @@ async def edit_take(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     bpm = None
+    # genre_folder is optional on an edit — seed the key so the style
+    # composition below degrades to the bare prompt instead of NameError.
+    genre_key = ""
     if req.genre_folder:
         genre_key = await asyncio.to_thread(_resolve_genre, req.genre_folder)
         bpm = _default_bpm_for(genre_key)
@@ -1626,7 +1660,9 @@ async def edit_take(
                 flush=True,
             )
 
-    payload = _edit_payload(req, resolved.file_path or req.file, bpm)
+    payload = _edit_payload(
+        req, resolved.file_path or req.file, bpm, genre_key
+    )
     try:
         released = await _release_edit(client, payload, resolved)
     except (acestep_client.AceStepDisabled, acestep_client.AceStepUnavailable) as exc:
