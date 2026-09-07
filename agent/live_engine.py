@@ -629,17 +629,17 @@ class LiveEngineLocal:
             (current_track or {}).get("genre_folder")
             or (current_track or {}).get("genre")
         )
-        pick = _autoplay_pick(
+        pick, tier = _endless_pick(
             current_track, catalog, genre, exclude,
-            allow_repeats=True, recent_ids=recent, never_ids=upcoming,
+            recent_ids=recent, never_ids=upcoming,
         )
         if pick is None:
             self._emit(
                 ENDLESS_WARNING,
                 reason="no_candidates",
                 message=(
-                    f"No more {genre or 'matching'} tracks left to extend "
-                    "with — set ending."
+                    "Whole catalog exhausted — nothing left to extend "
+                    "with, set ending."
                 ),
             )
             self._emit(SESSION_ENDED)
@@ -2011,9 +2011,9 @@ class LiveEngineBrowser:
             f"exclude_size={len(exclude)}",
             flush=True,
         )
-        pick = _autoplay_pick(
+        pick, tier = _endless_pick(
             current_track, catalog, genre, exclude,
-            allow_repeats=True, recent_ids=recent, never_ids=upcoming,
+            recent_ids=recent, never_ids=upcoming,
         )
         if pick is None:
             print(
@@ -2025,8 +2025,8 @@ class LiveEngineBrowser:
                 ENDLESS_WARNING,
                 reason="no_candidates",
                 message=(
-                    f"No more {genre or 'matching'} tracks left to extend "
-                    "with — set ending."
+                    "Whole catalog exhausted — nothing left to extend "
+                    "with, set ending."
                 ),
             )
             self._emit(SESSION_ENDED)
@@ -2102,14 +2102,14 @@ class LiveEngineBrowser:
             (current_track or {}).get("genre_folder")
             or (current_track or {}).get("genre")
         )
-        pick = _autoplay_pick(
+        pick, tier = _endless_pick(
             current_track, catalog, genre, exclude,
-            allow_repeats=True, recent_ids=recent, never_ids=upcoming,
+            recent_ids=recent, never_ids=upcoming,
         )
         print(
             f"[engine _try_endless_extend_inflight] genre={genre!r} "
             f"catalog_size={len(catalog)} exclude_size={len(exclude)} "
-            f"pick={(pick or {}).get('id')!r}",
+            f"tier={tier} pick={(pick or {}).get('id')!r}",
             flush=True,
         )
         if pick is None:
@@ -2981,6 +2981,71 @@ def _autoplay_pick(
         )
     )
     return candidates[0]
+
+
+def _endless_pick(
+    current_track: dict | None,
+    catalog: list[dict],
+    genre: str | None,
+    exclude_ids: set[str],
+    *,
+    recent_ids: list[str] | None = None,
+    never_ids: set[str] | None = None,
+) -> tuple[dict | None, str]:
+    """Choose an endless continuation, widening OUT of the genre before recycling.
+
+    ``genre`` is read from the track that is playing — which this same
+    picker chose on the previous lap. That makes a genre a one-way
+    door, and calling ``_autoplay_pick(..., allow_repeats=True)``
+    directly welds it shut: every recycle tier in that function is
+    ``in_genre``, so it fires the moment the CURRENT GENRE is exhausted
+    and the rest of the catalog is never reached.
+
+    Live 2026-09-07: an 18 h endless set played 352 tracks drawn from
+    exactly the 48 ``Healing`` entries (~7 plays each) while 465 other
+    catalog tracks sat unused. Worse, because the ranking is a
+    deterministic argmin over a 48-track pool, the set settled into a
+    fixed ORBIT — the same track returning every ~hour behind the same
+    predecessor and into the same successor, which is what an operator
+    actually hears as "it keeps playing the same song".
+
+    Tiers, in order:
+
+    1. ``in_genre`` — an unheard track in the current genre. Unchanged
+       behaviour: a set that has not exhausted its genre never leaves
+       this tier, so the common path is byte-for-byte what it was.
+    2. ``widened`` — an unheard track ANYWHERE in the catalog. Still
+       ranked by ``(|Δbpm|, camelot distance)`` against the current
+       track, so the crossing is that track's nearest musical
+       neighbour, not a jump cut into an unrelated genre.
+    3. ``recycled`` — only once the WHOLE catalog has been heard.
+       Genre-free for the same reason tier 2 is.
+
+    Returns ``(pick, tier)``. ``tier`` is ``"none"`` when nothing
+    qualifies, and callers log it so a repetitive set can be diagnosed
+    from the backend log alone rather than by counting crossfades.
+
+    Pure / module-level, like ``_autoplay_pick``, so tests can exercise
+    the tier ladder without spinning up an engine.
+    """
+    common = {"recent_ids": recent_ids, "never_ids": never_ids}
+    pick = _autoplay_pick(
+        current_track, catalog, genre, exclude_ids,
+        allow_repeats=False, **common,
+    )
+    if pick is not None:
+        return pick, "in_genre"
+    pick = _autoplay_pick(
+        current_track, catalog, None, exclude_ids,
+        allow_repeats=False, **common,
+    )
+    if pick is not None:
+        return pick, "widened"
+    pick = _autoplay_pick(
+        current_track, catalog, None, exclude_ids,
+        allow_repeats=True, **common,
+    )
+    return pick, ("recycled" if pick is not None else "none")
 
 
 def _track_summary(track: dict | None) -> dict | None:
