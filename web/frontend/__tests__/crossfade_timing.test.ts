@@ -17,6 +17,8 @@ import {
   computeCrossfadeWhen,
   buildMeasurementProfile,
   applyPitchNudge,
+  idealLandingTime,
+  lateCompensatedOffset,
 } from "../lib/crossfade_timing";
 
 describe("applyPitchNudge (W3 reinforcement input)", () => {
@@ -195,4 +197,116 @@ describe("computeCrossfadeWhen — v3.6 downbeat alignment", () => {
       expect(r.clamped).toBe(false);
     },
   );
+});
+
+
+/**
+ * v3.10.2 — landing in phase when the downbeat was already missed.
+ *
+ * Measured live 2026-09-07 over an 18 h set: 362 of 365 crossfades came
+ * back `clamped: true`, with the lateness spread uniformly across
+ * 0-0.3 s. Uniform-over-a-fixed-window is the signature of POLLING
+ * GRANULARITY, not jitter — the backend samples playback position at
+ * ~4 Hz, so it cannot notice the crossfade point any sooner. The
+ * backend log agrees: `fired at pos=209.8s, cf_point=209.6s`.
+ *
+ * The old code started the incoming source at the very top of its bar
+ * regardless, while the outgoing was already `residualMs` into its own.
+ * At 70 BPM a beat is 0.857 s, so 0.3 s is a third of a beat.
+ */
+describe("lateCompensatedOffset — phase despite a missed downbeat", () => {
+  it("does not move the offset when the downbeat was hit", () => {
+    expect(lateCompensatedOffset(12.5, 0, 1.0)).toBe(12.5);
+  });
+
+  it("skips into the incoming by exactly how late the landing was", () => {
+    // 200 ms late at native rate → start 200 ms past the incoming downbeat.
+    expect(lateCompensatedOffset(12.5, 200, 1.0)).toBeCloseTo(12.7, 6);
+  });
+
+  it("converts output seconds to SOURCE seconds via the playback rate", () => {
+    // The deck plays the incoming at 0.9x to match the outgoing's tempo,
+    // so 200 ms of output time consumes only 180 ms of the buffer.
+    expect(lateCompensatedOffset(12.5, 200, 0.9)).toBeCloseTo(12.68, 6);
+    // ...and at 1.1x it consumes more.
+    expect(lateCompensatedOffset(12.5, 200, 1.1)).toBeCloseTo(12.72, 6);
+  });
+
+  it.each([0, -1, NaN, Infinity])(
+    "falls back to the bare anchor for an unusable rate (%s)",
+    (rate) => {
+      expect(lateCompensatedOffset(12.5, 200, rate as number)).toBe(12.5);
+    },
+  );
+
+  it("ignores a negative or non-finite residual", () => {
+    expect(lateCompensatedOffset(12.5, -50, 1.0)).toBe(12.5);
+    expect(lateCompensatedOffset(12.5, NaN, 1.0)).toBe(12.5);
+  });
+
+  it("survives a missing anchor without seeking somewhere arbitrary", () => {
+    expect(lateCompensatedOffset(NaN, 200, 1.0)).toBeCloseTo(0.2, 6);
+  });
+});
+
+describe("idealLandingTime — plans anchor at the downbeat, not at `when`", () => {
+  it("is `when` itself when nothing was clamped", () => {
+    expect(idealLandingTime(50.0, 0)).toBe(50.0);
+  });
+
+  it("is in the PAST by the residual when clamped", () => {
+    // A grid-warp segment scheduled here already applies — which is what
+    // "this bar has already begun" means.
+    expect(idealLandingTime(50.1, 200)).toBeCloseTo(49.9, 6);
+  });
+});
+
+describe("the two decks end up equally far into their bars", () => {
+  it.each([
+    ["a hit downbeat", 293.54, 0],
+    ["one ping late", 293.94, 0.1],
+    ["a full ping late", 293.94, 0.3],
+  ])("%s", (_label, anchor, lateness) => {
+    const outgoingPos = anchor + lateness; // deck already past its anchor
+    const t = computeCrossfadeWhen({
+      ctxNow: 50.0,
+      lookaheadSec: 0.1,
+      outgoingPosSec: outgoingPos,
+      outgoingAnchorSec: anchor,
+    });
+    const rate = 1.0;
+    const startOffset = lateCompensatedOffset(12.5, t.residualMs, rate);
+
+    // How far into its OWN bar each deck is at the instant the blend
+    // lands: what it had already passed, plus what it plays between now
+    // and `when`. (Note this is non-zero even for a "hit" downbeat —
+    // SCHEDULE_LOOKAHEAD_SEC itself pushes `when` past the anchor, so the
+    // compensation covers the lookahead slack too.)
+    const outgoingIntoBar = outgoingPos - anchor + (t.when - 50.0);
+    const incomingIntoBar = startOffset - 12.5;
+
+    // The invariant the whole fix exists to hold.
+    expect(incomingIntoBar).toBeCloseTo(outgoingIntoBar, 6);
+  });
+
+  it("the old behaviour violated it — this is what was wrong", () => {
+    const t = computeCrossfadeWhen({
+      ctxNow: 50.0,
+      lookaheadSec: 0.1,
+      outgoingPosSec: 293.94,
+      outgoingAnchorSec: 293.54,
+    });
+    expect(t.clamped).toBe(true);
+    // OLD: incoming started at the anchor -> 0 into its bar...
+    const oldIncomingIntoBar = 12.5 - 12.5;
+    // ...while the outgoing was 0.4 s past its anchor already and plays
+    // another 0.1 s before the blend lands: 0.5 s into its bar.
+    const outgoingIntoBar = 0.4 + (t.when - 50.0);
+    expect(outgoingIntoBar).toBeCloseTo(0.5, 6);
+    expect(oldIncomingIntoBar).not.toBeCloseTo(outgoingIntoBar, 2);
+    // NEW: the gap closes.
+    const newIncomingIntoBar =
+      lateCompensatedOffset(12.5, t.residualMs, 1.0) - 12.5;
+    expect(newIncomingIntoBar).toBeCloseTo(outgoingIntoBar, 6);
+  });
 });

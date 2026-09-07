@@ -96,6 +96,61 @@ export function computeCrossfadeWhen(
 }
 
 /**
+ * The audio-thread instant the incoming downbeat *should* have landed on.
+ *
+ * ``when`` is the instant we actually schedule at. When the outgoing deck
+ * was already past its anchor, ``when`` was clamped forward and the two
+ * differ by ``residualMs``. Every plan the backend built — the grid-warp
+ * segment times, the bass-swap drop — is measured from the DOWNBEAT, not
+ * from whenever we happened to get around to scheduling, so those plans
+ * must be anchored here rather than at ``when``.
+ *
+ * Returns a time in the PAST relative to ``when`` when clamped, which is
+ * exactly right: a Web Audio ``setValueAtTime`` in the past applies
+ * immediately, which is what "this bar already started" means.
+ */
+export function idealLandingTime(when: number, residualMs: number): number {
+  if (!Number.isFinite(residualMs) || residualMs <= 0) return when;
+  return when - residualMs / 1000;
+}
+
+/**
+ * Where to start the incoming track so it is in phase despite landing late.
+ *
+ * The bug this fixes: the incoming source was always started at its own
+ * downbeat (``incomingAnchorSec``), even when ``when`` had been clamped
+ * because the outgoing deck was already past its anchor. The outgoing was
+ * then ``residualMs`` INTO its bar while the incoming was at the very top
+ * of its own — the two decks a few tens of ms out of phase on every
+ * single transition. Measured live 2026-09-07: 362 of 365 crossfades
+ * clamped, spread uniformly across 0–0.3 s, which is the signature of the
+ * backend's ~4 Hz position polling, not of jitter. At 70 BPM a beat is
+ * 0.857 s, so 0.3 s is a third of a beat — an audible flam.
+ *
+ * The fix costs nothing: skip the same amount into the incoming track.
+ * Both decks are then equally far into their respective bars, so they are
+ * phase-locked by construction and the blend still lands immediately —
+ * no waiting a whole bar for the next downbeat.
+ *
+ * ``rate`` converts output seconds to SOURCE seconds: the deck plays the
+ * incoming at ``rate`` to match the outgoing's tempo, so ``residualMs`` of
+ * output time consumes ``residualMs * rate`` of the buffer.
+ */
+export function lateCompensatedOffset(
+  incomingAnchorSec: number,
+  residualMs: number,
+  rate: number,
+): number {
+  const base = Number.isFinite(incomingAnchorSec) ? incomingAnchorSec : 0;
+  if (!Number.isFinite(residualMs) || residualMs <= 0) return base;
+  // A non-positive or non-finite rate would map the correction to
+  // nonsense; fall back to no compensation rather than seek somewhere
+  // arbitrary in the buffer.
+  if (!Number.isFinite(rate) || rate <= 0) return base;
+  return base + (residualMs / 1000) * rate;
+}
+
+/**
  * One pitch-bend nudge (W3 reinforcement input). Pure: given the current
  * accumulated correction and a direction, returns the new accumulator and the
  * playbackRate multiplier to apply briefly to the incoming deck.

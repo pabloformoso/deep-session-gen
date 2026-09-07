@@ -55,6 +55,8 @@ import {
 } from "./audio_buffer_decks";
 import {
   computeCrossfadeWhen,
+  idealLandingTime,
+  lateCompensatedOffset,
   buildMeasurementProfile,
   applyPitchNudge,
 } from "./crossfade_timing";
@@ -1185,6 +1187,35 @@ export function useLiveSession(
         /* console unavailable — ignore */
       }
 
+      // v3.10.2 — land in phase even when we missed the downbeat.
+      //
+      // `when` above was clamped forward whenever the outgoing deck was
+      // already past its anchor, which the live logs say is virtually
+      // ALWAYS: 362 of 365 crossfades clamped, spread uniformly across
+      // 0-0.3 s. That spread is the signature of the backend's ~4 Hz
+      // position polling (it cannot notice the crossfade point sooner
+      // than its next ping), not of jitter. We were then starting the
+      // incoming source at the very top of its bar while the outgoing
+      // was already `residualMs` into its own — a few tens of ms out of
+      // phase on every transition. At 70 BPM that is up to a third of a
+      // beat: an audible flam, and the residual the W2 loop has been
+      // dutifully measuring and reporting all along without anything
+      // ever acting on it.
+      //
+      // Skipping the same distance into the incoming track costs nothing
+      // and puts both decks equally far into their bars. The alternative
+      // — waiting for the NEXT downbeat — would delay every blend by a
+      // whole bar and shift its position within the phrase.
+      const startOffsetSec = lateCompensatedOffset(
+        incomingAnchorSec,
+        _xfTiming.residualMs,
+        initialRate,
+      );
+      // Every plan the backend built is measured from the DOWNBEAT, not
+      // from whenever we got around to scheduling, so the grid-warp
+      // schedule and the bass-swap drop below anchor here.
+      const downbeatTime = idealLandingTime(when, _xfTiming.residualMs);
+
       // W2 (beatmatch feedback loop) — stream this transition's measured
       // residual + (optional) human pitch-bend to the backend, which appends
       // it to measurements.jsonl for the beatmatch-learn loop. The profile
@@ -1221,7 +1252,7 @@ export function useLiveSession(
         toDeck.scheduleSource(
           buffer,
           when,
-          incomingAnchorSec,
+          startOffsetSec,
           initialRate,
           track.id,
           () => onDeckEnded(toWhich),
@@ -1230,7 +1261,12 @@ export function useLiveSession(
           // Per-bar pitch-fader ride against the same `when` clock as the
           // source start, so every incoming downbeat lands on an outgoing
           // downbeat for the whole overlap.
-          toDeck.applyRateSchedule(rateSchedule, when);
+          // Anchored at the downbeat, not at `when`: segment times are
+          // bar boundaries of the incoming track, and we started
+          // `residualMs` past its first one. A segment that now falls in
+          // the past applies immediately, which is what "this bar has
+          // already begun" means.
+          toDeck.applyRateSchedule(rateSchedule, downbeatTime);
         }
         setAutoplayBlocked(false);
         // v3.9 — a healthy schedule ends any skip-on-failure streak.
@@ -1267,7 +1303,10 @@ export function useLiveSession(
         phaseLock.bass_swap
       ) {
         const dropOffsetCatalogSec =
-          phaseLock.bass_swap.drop_at_incoming_sec - incomingAnchorSec;
+          // From where we ACTUALLY started, not from the anchor: we
+          // skipped `residualMs` of the incoming, so that much less of
+          // the track remains before the drop.
+          phaseLock.bass_swap.drop_at_incoming_sec - startOffsetSec;
         const dropDelaySec = Math.max(
           0,
           dropOffsetCatalogSec / Math.max(0.0001, incomingRate),
