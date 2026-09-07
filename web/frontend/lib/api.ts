@@ -241,6 +241,15 @@ export const streamUrl = (trackId: string): string => {
   return `${BASE}/tracks/${encodeURIComponent(trackId)}/stream?token=${encodeURIComponent(token)}`;
 };
 
+// Locally generated cover art. Same query-string token trick as
+// streamUrl — an <img> can't set Authorization either. Only tracks
+// Apollo generated itself have one; everything imported from Suno keeps
+// its remote suno.cover_url, so callers must fall back.
+export const coverUrl = (trackId: string): string => {
+  const token = getToken() ?? "";
+  return `${BASE}/tracks/${encodeURIComponent(trackId)}/cover?token=${encodeURIComponent(token)}`;
+};
+
 // Playlists (v2.2.1)
 export const listPlaylists = () => req<Playlist[]>("/playlists");
 

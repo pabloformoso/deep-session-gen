@@ -81,11 +81,11 @@ import httpx
 from typing import Any, Literal
 from urllib.parse import quote, unquote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from . import acestep_client, auth, db
+from . import acestep_client, auth, covers, db
 from .brief_parser import detect_provider
 from .ws_manager import ws_manager
 
@@ -1429,6 +1429,7 @@ async def _download_take(client: acestep_client.AceStepClient, api_path: str, de
 @router.post("/api/generator/publish")
 async def publish_take(
     req: PublishRequest,
+    background: BackgroundTasks,
     current_user: dict = Depends(auth.get_current_user),
 ):
     """Land one take in the catalog: download → G2a's ingest → entry.
@@ -1545,6 +1546,22 @@ async def publish_take(
     # to turn a successful publish into a failure.
     await _record_publish(
         current_user["id"], resolved.file_path or req.file, entry["id"]
+    )
+
+    # G7: give the new track a cover. 510 of the catalog's 513 tracks
+    # already show one (imported from Suno with a remote cover_url); the
+    # blanks were exactly the tracks made at home, which is every track
+    # this endpoint creates. Runs in the BACKGROUND: an image call takes
+    # ~20 s and publish has already done the slow work (download +
+    # beat-analysing ingest), so blocking the response on artwork would
+    # double a wait the user is already staring at. The cover appears on
+    # the next catalog load. Failures are logged inside generate_cover
+    # and never surface — same rule as _record_publish above.
+    background.add_task(
+        covers.generate_cover,
+        entry["id"],
+        entry["display_name"],
+        req.genre_folder,
     )
 
     return {

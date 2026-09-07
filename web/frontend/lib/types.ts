@@ -41,6 +41,12 @@ export interface Track {
   file?: string;
   variant_of?: string | null;
   suno?: Suno;
+  /**
+   * Relative URL of a LOCAL cover, set by /api/catalog only for tracks
+   * Apollo generated itself. Null for the Suno-imported majority, which
+   * carry a remote `suno.cover_url` instead — always fall back.
+   */
+  cover_url?: string | null;
   user_rating?: number | null;
   /**
    * v2.7.2 — 80 normalised RMS peaks (range 0..1) representing the

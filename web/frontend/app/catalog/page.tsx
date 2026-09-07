@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { clearRating, getCatalog, setRating } from "@/lib/api";
+import { clearRating, coverUrl, getCatalog, setRating } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { usePlayer } from "@/lib/player";
 import StarRating from "@/components/StarRating";
@@ -288,7 +288,9 @@ function TrackCard({
   onRate: (trackId: string, rating: number) => void;
   onClearRating: (trackId: string) => void;
 }) {
-  const cover = track.suno?.cover_url;
+  // Local cover wins: a track Apollo generated has art matched to its
+  // genre theme, and a republished take supersedes a stale remote image.
+  const cover = track.cover_url ? coverUrl(track.id) : track.suno?.cover_url;
   const { play } = usePlayer();
   const [menuOpen, setMenuOpen] = useState(false);
   return (
@@ -401,6 +403,8 @@ function TrackDetail({
   onClearRating: (trackId: string) => void;
 }) {
   const suno = track.suno ?? {};
+  // Same precedence as the grid card: a local cover supersedes Suno's.
+  const detailCover = track.cover_url ? coverUrl(track.id) : suno.cover_url;
   const { play, currentTrack } = usePlayer();
   const isThisPlaying = currentTrack?.id === track.id;
   const [addOpen, setAddOpen] = useState(false);
@@ -434,10 +438,10 @@ function TrackDetail({
           </button>
         </div>
 
-        {suno.cover_url ? (
+        {detailCover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={suno.cover_url}
+            src={detailCover}
             alt={track.display_name}
             className="w-full border border-line2 mb-6"
           />
