@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket,
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 
-from . import db, auth, pipeline, youtube_auth
+from . import covers, db, auth, pipeline, youtube_auth
 from .generator import router as generator_router
 from .render import router as render_router
 from .models import (
@@ -283,7 +283,19 @@ async def get_catalog(
     # Hydrate each track with the calling user's own rating (or null). This is
     # always scoped to current_user.id — ratings from other users never leak.
     ratings = await asyncio.to_thread(db.get_user_ratings, current_user["id"])
-    enriched = [{**t, "user_rating": ratings.get(t.get("id")) } for t in tracks]
+    # ``cover_url`` is the LOCAL cover, present only for tracks Apollo
+    # generated itself. Suno-imported tracks keep their remote
+    # ``suno.cover_url`` untouched; the frontend prefers the local one
+    # when both exist, so a republished take can supersede a stale
+    # remote image without the catalog having to rewrite tracks.json.
+    enriched = [
+        {
+            **t,
+            "user_rating": ratings.get(t.get("id")),
+            "cover_url": covers.cover_url_for(t.get("id") or ""),
+        }
+        for t in tracks
+    ]
     return {"tracks": enriched, "genres": genres}
 
 
@@ -382,6 +394,27 @@ async def stream_track(track_id: str, token: str = Query(...)):
     # Starlette's FileResponse handles Range/206 Partial Content natively,
     # which is what makes seek + iOS playback work without extra plumbing.
     return FileResponse(str(path), media_type=media_type)
+
+
+@app.get("/api/tracks/{track_id}/cover")
+async def track_cover(track_id: str, token: str = Query(...)):
+    """Serve a locally generated cover for a catalog track.
+
+    The token travels in the query string for the same reason it does on
+    ``/stream``: an ``<img src>`` cannot carry an Authorization header
+    any more than an ``<audio src>`` can.
+
+    404 for a track with no cover — the overwhelming majority, since 510
+    of the catalog's tracks were imported from Suno and carry a remote
+    ``suno.cover_url`` instead. The frontend treats a missing local
+    cover as "fall back to whatever the track already had", so this must
+    stay a plain 404 and not an error.
+    """
+    _stream_authorize(token)
+    path = covers.cover_path(track_id)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="No cover for this track")
+    return FileResponse(str(path), media_type="image/png")
 
 
 # ---------------------------------------------------------------------------

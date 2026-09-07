@@ -4139,14 +4139,23 @@ def _get_video_bg_frame(t, transitions, video_loops, frame_buf, blend_buf):
 
 # === Artwork generation ===
 
-def _generate_artwork(track_name, artwork_dir, theme=None):
+def _generate_artwork(track_name, artwork_dir, theme=None, cache_name=None):
     """Generate artwork for a track using DALL-E 3, with caching.
 
     Uses theme["artwork_style"] to select prompt template from ARTWORK_PROMPTS.
     Falls back to "abstract" style when no theme is provided.
+
+    ``cache_name`` separates the FILENAME from the PROMPT. Sessions key
+    artwork by display name (that is the dedup rule — two tracks sharing
+    a name share one image), but a catalog cover has to be keyed by the
+    track id: ids are unique and filesystem-safe, display names are
+    neither ('Velvet Corridor' exists twice, and a name may hold a
+    slash). The prompt still gets ``track_name`` so the image is about
+    the song, not about a slug. Defaults to ``track_name`` — every
+    existing caller keeps its current behaviour.
     """
     os.makedirs(artwork_dir, exist_ok=True)
-    cache_path = os.path.join(artwork_dir, f"{track_name}.png")
+    cache_path = os.path.join(artwork_dir, f"{cache_name or track_name}.png")
 
     if os.path.exists(cache_path):
         print(f"  Artwork cached: {cache_path}")
