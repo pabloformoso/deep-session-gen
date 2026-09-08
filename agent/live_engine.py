@@ -31,7 +31,7 @@ import threading
 import time
 from pathlib import Path
 from queue import Queue
-from typing import Callable, Protocol, runtime_checkable
+from typing import Callable, Iterable, Protocol, runtime_checkable
 
 import numpy as np
 import soundfile as sf
@@ -622,13 +622,10 @@ class LiveEngineLocal:
             upcoming = {
                 t.get("id") for t in self.playlist[self._idx:] if t.get("id")
             }
-        # Pull genre from the current track (catalog entries are tagged
-        # with ``genre_folder``); falling back to the loose ``genre``
-        # field keeps the path resilient against legacy entries.
-        genre = (
-            (current_track or {}).get("genre_folder")
-            or (current_track or {}).get("genre")
-        )
+            # Read under the SAME lock as the playlist above.
+            seed = seed_genres(self.playlist, self._endless_appended)
+        # The genre the SET is anchored on — not whatever is on the deck.
+        genre = anchor_genre(seed, current_track)
         pick, tier = _endless_pick(
             current_track, catalog, genre, exclude,
             recent_ids=recent, never_ids=upcoming,
@@ -2000,10 +1997,10 @@ class LiveEngineBrowser:
             upcoming = {
                 t.get("id") for t in self.playlist[self._idx:] if t.get("id")
             }
-        genre = (
-            (current_track or {}).get("genre_folder")
-            or (current_track or {}).get("genre")
-        )
+            # Read under the SAME lock as the playlist above.
+            seed = seed_genres(self.playlist, self._endless_appended)
+        # The genre the SET is anchored on — not whatever is on the deck.
+        genre = anchor_genre(seed, current_track)
         print(
             f"[engine _maybe_end_or_extend] "
             f"{'track over' if track_over else 'grace elapsed'} — "
@@ -2097,11 +2094,11 @@ class LiveEngineBrowser:
             upcoming = {
                 t.get("id") for t in self.playlist[self._idx:] if t.get("id")
             }
+            # Read under the SAME lock as the playlist above.
+            seed = seed_genres(self.playlist, self._endless_appended)
         catalog = _load_catalog()
-        genre = (
-            (current_track or {}).get("genre_folder")
-            or (current_track or {}).get("genre")
-        )
+        # The genre the SET is anchored on — not whatever is on the deck.
+        genre = anchor_genre(seed, current_track)
         pick, tier = _endless_pick(
             current_track, catalog, genre, exclude,
             recent_ids=recent, never_ids=upcoming,
@@ -2857,7 +2854,7 @@ def _recent_window_ids(playlist: list[dict], idx: int, window: int) -> list[str]
 def _autoplay_pick(
     current_track: dict | None,
     catalog: list[dict],
-    genre: str | None,
+    genre: str | Iterable[str] | None,
     exclude_ids: set[str],
     *,
     allow_repeats: bool = False,
@@ -2922,14 +2919,21 @@ def _autoplay_pick(
         ]
     if not catalog:
         return None
-    target_genre = (genre or "").strip().lower()
+    # ``genre`` may be a single folder or an iterable of them. The set
+    # form is what the endless widen tier uses: it must rank across a
+    # HANDFUL of compatible genres in one pass, because ranking each
+    # separately and merging afterwards would lose the global ordering.
+    if genre is None or isinstance(genre, str):
+        target_genres = {(genre or "").strip().lower()} - {""}
+    else:
+        target_genres = {(g or "").strip().lower() for g in genre} - {""}
     cur_bpm = float((current_track or {}).get("bpm") or 0.0)
     cur_key = (current_track or {}).get("camelot_key")
     cur_id = (current_track or {}).get("id")
 
     def in_genre(t: dict) -> bool:
         gf = (t.get("genre_folder") or t.get("genre") or "").strip().lower()
-        return bool(gf) and (not target_genre or gf == target_genre)
+        return bool(gf) and (not target_genres or gf in target_genres)
 
     # v3.10 — the 2026-08-05 lesson: 91 tracks with zero id repeats
     # still produced 5+ audible repeats, because takes of a played
@@ -2983,10 +2987,111 @@ def _autoplay_pick(
     return candidates[0]
 
 
+#: Which genres may stand in for which, when a set has exhausted its own.
+#:
+#: Ranking by ``(|Δbpm|, camelot distance)`` is NOT enough to decide this
+#: and the 2026-09-07 broadcast proved it: a "meditación non stop" stream
+#: drifted soul jazz -> synthware and played techno for twenty tracks. The
+#: bridge was `Falling Speed` (synthware, 164 BPM) matched against a soul
+#: jazz entry stored at 165 BPM — an outlier inside its OWN genre, since
+#: soul jazz spans 59-165 in the catalog. Tempo similarity said "perfect
+#: match"; a listener said otherwise. CLAUDE.md has warned since 2026-08
+#: that poisoned BPMs act as genre-drift bridges; opening the pool to the
+#: whole catalog turned that warning into an on-air incident.
+#:
+#: So adjacency is DECLARED, not inferred. Each entry lists the genres a
+#: listener would accept without noticing the seam. Relationships are
+#: written symmetrically on purpose — if healing may reach for aural,
+#: aural may reach for healing.
+#:
+#: A genre missing from this map cannot widen at all: it recycles within
+#: itself, which is the conservative failure and the old behaviour.
+GENRE_NEIGHBOURS: dict[str, frozenset[str]] = {
+    # The calm cluster. This is what a "non stop meditation" broadcast
+    # must never leave, so it is CLOSED: no member reaches a genre with a
+    # dancefloor kick, in one hop or otherwise (there is no transitivity —
+    # widen_pool looks exactly one step out).
+    "healing": frozenset({"aural", "lofi - ambient", "chillout"}),
+    "aural": frozenset({"healing", "lofi - ambient", "chillout"}),
+    "lofi - ambient": frozenset({"healing", "aural", "chillout"}),
+    # Chillout is the one bridge between calm and lounge, which is why
+    # healing cannot reach cocktail house: that would take two hops.
+    "chillout": frozenset(
+        {"healing", "aural", "lofi - ambient", "cocktail house", "soul jazz"}
+    ),
+    # Warm, live-instrument, lounge.
+    "soul jazz": frozenset({"cocktail house", "chillout"}),
+    "cocktail house": frozenset({"soul jazz", "chillout", "deep house"}),
+    # Four-to-the-floor and up.
+    "deep house": frozenset({"cocktail house", "techno", "synthware"}),
+    "techno": frozenset({"deep house", "synthware", "cyberpunk"}),
+    "synthware": frozenset({"techno", "cyberpunk", "deep house"}),
+    "cyberpunk": frozenset({"techno", "synthware"}),
+    # NOTE: the legacy `lofi` alias from BPM_GENRE_RANGES is deliberately
+    # absent. No catalog folder uses it, and an unmapped genre simply
+    # cannot widen — the conservative failure, not a wrong neighbour.
+}
+
+
+def widen_pool(genre: str | None) -> frozenset[str]:
+    """The genres a set anchored on ``genre`` may draw from.
+
+    Always includes the anchor itself, so the caller can hand the result
+    straight to ``_autoplay_pick`` as the widened target.
+    """
+    key = (genre or "").strip().lower()
+    if not key:
+        return frozenset()
+    return frozenset({key}) | GENRE_NEIGHBOURS.get(key, frozenset())
+
+
+def seed_genres(playlist: list[dict], endless_appended: int) -> list[str]:
+    """Genres of the playlist as it was SEEDED, before endless topped it up.
+
+    ``endless_appended`` counts the tracks this engine appended itself, and
+    they are always appended at the end — so the prefix is the set the
+    operator actually asked for.
+    """
+    seeded = len(playlist) - max(endless_appended, 0)
+    return [
+        g
+        for t in playlist[: max(seeded, 0)]
+        if (g := (t.get("genre_folder") or t.get("genre") or "").strip().lower())
+    ]
+
+
+def anchor_genre(seed: list[str], current_track: dict | None) -> str | None:
+    """What this SET is, as opposed to what happens to be playing.
+
+    Reading the genre off ``current_track`` — which is what every caller
+    used to do — makes a genre a one-way door in BOTH directions. It first
+    trapped an 18 h set inside `healing`; then, once widening opened the
+    door, a single foreign pick RELOCATED the set permanently, because the
+    next lap read the genre off the track that pick had just started. A
+    "meditación non stop" broadcast walked soul jazz -> synthware and
+    played twenty techno tracks on air (2026-09-07).
+
+    The anchor is the mode of the SEEDED playlist, so it cannot drift: a
+    healing set stays a healing set no matter what one widened pick put on
+    the deck. Falls back to the playing track only when there is no seed
+    left to read, which is the pre-anchor behaviour.
+    """
+    if seed:
+        counts: dict[str, int] = {}
+        for g in seed:
+            counts[g] = counts.get(g, 0) + 1
+        # Iterate sorted so ties resolve deterministically rather than by
+        # whatever order the playlist happened to have.
+        return max(sorted(counts), key=lambda g: counts[g])
+    return (current_track or {}).get("genre_folder") or (
+        (current_track or {}).get("genre")
+    )
+
+
 def _endless_pick(
     current_track: dict | None,
     catalog: list[dict],
-    genre: str | None,
+    genre: str | Iterable[str] | None,
     exclude_ids: set[str],
     *,
     recent_ids: list[str] | None = None,
@@ -3014,12 +3119,15 @@ def _endless_pick(
     1. ``in_genre`` — an unheard track in the current genre. Unchanged
        behaviour: a set that has not exhausted its genre never leaves
        this tier, so the common path is byte-for-byte what it was.
-    2. ``widened`` — an unheard track ANYWHERE in the catalog. Still
-       ranked by ``(|Δbpm|, camelot distance)`` against the current
-       track, so the crossing is that track's nearest musical
-       neighbour, not a jump cut into an unrelated genre.
-    3. ``recycled`` — only once the WHOLE catalog has been heard.
-       Genre-free for the same reason tier 2 is.
+    2. ``widened`` — an unheard track in a DECLARED neighbour genre
+       (``GENRE_NEIGHBOURS``), ranked by ``(|Δbpm|, camelot distance)``
+       across the whole neighbourhood in one pass. This tier used to
+       open the entire catalog; tempo similarity alone bridged soul jazz
+       to synthware on a live meditation broadcast, so adjacency is now
+       declared rather than inferred.
+    3. ``recycled`` — once the neighbourhood is exhausted. Scoped to the
+       same neighbourhood, so a 24/7 stream repeats within its own sound
+       instead of escaping it.
 
     Returns ``(pick, tier)``. ``tier`` is ``"none"`` when nothing
     qualifies, and callers log it so a repetitive set can be diagnosed
@@ -3029,20 +3137,27 @@ def _endless_pick(
     the tier ladder without spinning up an engine.
     """
     common = {"recent_ids": recent_ids, "never_ids": never_ids}
+    pool = widen_pool(genre)
     pick = _autoplay_pick(
         current_track, catalog, genre, exclude_ids,
         allow_repeats=False, **common,
     )
     if pick is not None:
         return pick, "in_genre"
+    # Widen to DECLARED neighbours only. The first version of this went to
+    # the whole catalog and put techno on a meditation stream within a
+    # day — see GENRE_NEIGHBOURS for the post-mortem.
+    if pool:
+        pick = _autoplay_pick(
+            current_track, catalog, pool, exclude_ids,
+            allow_repeats=False, **common,
+        )
+        if pick is not None:
+            return pick, "widened"
+    # Last resort: recycle. Scoped to the same neighbourhood, so a long
+    # stream repeats within its own sound rather than escaping it.
     pick = _autoplay_pick(
-        current_track, catalog, None, exclude_ids,
-        allow_repeats=False, **common,
-    )
-    if pick is not None:
-        return pick, "widened"
-    pick = _autoplay_pick(
-        current_track, catalog, None, exclude_ids,
+        current_track, catalog, pool or genre, exclude_ids,
         allow_repeats=True, **common,
     )
     return pick, ("recycled" if pick is not None else "none")
