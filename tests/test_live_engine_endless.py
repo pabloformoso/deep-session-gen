@@ -25,6 +25,10 @@ from agent.live_engine import (
     _autoplay_pick,
     _camelot_distance,
     _endless_pick,
+    anchor_genre,
+    seed_genres,
+    widen_pool,
+    GENRE_NEIGHBOURS,
     _recent_window_ids,
 )
 
@@ -349,6 +353,119 @@ def test_endless_pick_escapes_a_fully_played_genre_across_many_laps():
     # All six tracks consumed exactly once — no repeats, both genres reached.
     assert len(played) == 6
     assert seen_genres == {"healing", "lofi - ambient"}
+
+
+# ---------------------------------------------------------------------------
+# Genre adjacency + the session anchor
+#
+# The 2026-09-07 on-air incident: a "meditación non stop" YouTube stream
+# played twenty synthware/techno tracks. Two compounding causes, both
+# fixed here.
+#
+# 1. Widening opened the WHOLE catalog and ranked by (|Δbpm|, camelot).
+#    A soul jazz entry stored at 165 BPM — an outlier inside its own
+#    genre, which spans 59-165 — matched `Falling Speed` (synthware,
+#    164 BPM). Tempo similarity said "perfect"; a listener disagreed.
+# 2. The genre was re-read from the PLAYING track, so that one foreign
+#    pick relocated the set permanently: the next lap read
+#    genre='synthware' and never came back.
+# ---------------------------------------------------------------------------
+
+def test_the_incident_soul_jazz_must_not_reach_synthware():
+    """The exact pair that went out on air."""
+    assert "synthware" not in widen_pool("soul jazz")
+
+
+def test_the_ambient_cluster_cannot_reach_the_dancefloor():
+    """A meditation stream must not be one BPM coincidence from techno."""
+    for calm in ("healing", "aural", "lofi - ambient"):
+        pool = widen_pool(calm)
+        for loud in ("techno", "synthware", "cyberpunk", "deep house"):
+            assert loud not in pool, f"{calm} could reach {loud}"
+
+
+def test_a_genre_can_always_reach_itself():
+    assert "healing" in widen_pool("healing")
+
+
+def test_adjacency_is_symmetric():
+    """If healing may reach aural, aural may reach healing."""
+    for genre, neighbours in GENRE_NEIGHBOURS.items():
+        for n in neighbours:
+            assert genre in GENRE_NEIGHBOURS.get(n, frozenset()), (
+                f"{genre} -> {n} is not mirrored back"
+            )
+
+
+def test_an_unmapped_genre_cannot_widen_at_all():
+    """The conservative failure: recycle within itself, the old behaviour."""
+    assert widen_pool("not-a-genre") == frozenset({"not-a-genre"})
+    assert widen_pool(None) == frozenset()
+
+
+def test_widening_reaches_a_neighbour_but_refuses_a_stranger():
+    catalog = [
+        _track("heard", genre_folder="healing", bpm=70),
+        # A perfect tempo match that a listener would never accept.
+        _track("techno", genre_folder="techno", bpm=70, camelot_key="8A"),
+        # A worse tempo match that belongs to the same world.
+        _track("calm", genre_folder="aural", bpm=61, camelot_key="8A"),
+    ]
+    current = _track("playing", bpm=70, genre_folder="healing", camelot_key="8A")
+    pick, tier = _endless_pick(current, catalog, "healing", {"heard"})
+    assert tier == "widened"
+    assert pick is not None and pick["id"] == "calm", (
+        "tempo similarity must not outrank declared adjacency"
+    )
+
+
+# --- the anchor: one widened pick must not relocate the set --------------
+
+def test_seed_genres_ignores_what_endless_appended():
+    playlist = [
+        _track("a", genre_folder="healing"),
+        _track("b", genre_folder="healing"),
+        _track("c", genre_folder="synthware"),  # appended by endless
+    ]
+    assert seed_genres(playlist, 1) == ["healing", "healing"]
+
+
+def test_seed_genres_survives_a_bogus_append_count():
+    playlist = [_track("a", genre_folder="healing")]
+    assert seed_genres(playlist, 99) == []
+    assert seed_genres(playlist, -5) == ["healing"]
+
+
+def test_anchor_is_the_seeded_genre_not_the_playing_track():
+    """The relocation bug, in one assertion."""
+    seed = ["healing"] * 10
+    playing = _track("x", genre_folder="synthware")
+    assert anchor_genre(seed, playing) == "healing"
+
+
+def test_anchor_falls_back_to_the_playing_track_with_no_seed():
+    playing = _track("x", genre_folder="synthware")
+    assert anchor_genre([], playing) == "synthware"
+    assert anchor_genre([], None) is None
+
+
+def test_anchor_is_the_mode_of_a_mixed_seed():
+    assert anchor_genre(["healing"] * 3 + ["aural"], None) == "healing"
+
+
+def test_anchor_ties_resolve_deterministically():
+    """Same seed, same answer — a set must not wobble between laps."""
+    seed = ["aural", "healing"]
+    assert anchor_genre(seed, None) == anchor_genre(list(reversed(seed)), None)
+
+
+def test_a_widened_pick_does_not_move_the_anchor_next_lap():
+    """The full incident, simulated: one foreign pick, then recovery."""
+    seed = ["healing"] * 12
+    # Lap 1 puts a neighbour track on the deck...
+    widened = _track("w", genre_folder="aural")
+    # ...and lap 2 must still ask for healing, not for aural.
+    assert anchor_genre(seed, widened) == "healing"
 
 
 def test_append_track_adds_to_playlist_and_returns_position():
